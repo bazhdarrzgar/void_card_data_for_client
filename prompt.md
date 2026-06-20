@@ -56,3 +56,7 @@ column name just raw data
 this space you add in the left and right and top is alot make twice less than you add
 
 for page number i wanna like this 1 - end page number
+
+please create upload_github.sh file to upload project easly to github and just ask me to commit name only
+
+also create .bat file to run this project in dev mod
