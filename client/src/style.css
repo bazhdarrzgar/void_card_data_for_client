@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base Reset ──────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #0f172a;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+/* ─── Custom Utilities ────────────────────────────────── */
+@layer components {
+  .glass-panel {
+    @apply bg-surface-900/60 backdrop-blur-xl border border-surface-700/50 rounded-2xl;
+  }
+
+  .glass-panel-sm {
+    @apply bg-surface-900/60 backdrop-blur-xl border border-surface-700/50 rounded-xl;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm
+           bg-gradient-to-r from-accent-600 to-accent-500 text-white
+           hover:from-accent-500 hover:to-accent-400
+           active:scale-[0.97] transition-all duration-200
+           shadow-lg shadow-accent-500/20 hover:shadow-accent-500/30;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm
+           bg-gradient-to-r from-danger-600 to-danger-500 text-white
+           hover:from-danger-500 hover:to-danger-400
+           active:scale-[0.97] transition-all duration-200
+           shadow-lg shadow-danger-500/20 hover:shadow-danger-500/30;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm
+           text-surface-300 hover:text-white hover:bg-surface-700/60
+           active:scale-[0.97] transition-all duration-200;
+  }
+
+  .input-field {
+    @apply w-full bg-surface-800/80 border border-surface-600/50 rounded-lg px-3.5 py-2.5
+           text-sm text-surface-100 placeholder-surface-500
+           focus:outline-none focus:border-accent-500/60 focus:ring-2 focus:ring-accent-500/20
+           transition-all duration-200;
+  }
+}
+
+/* ─── Table Styling ───────────────────────────────────── */
+.data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: linear-gradient(180deg, #1e293b 0%, #1a2332 100%);
+  border-bottom: 2px solid #334155;
+  padding: 0.75rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.data-table tbody tr {
+  transition: background-color 0.15s ease;
+  cursor: pointer;
+}
+
+.data-table tbody tr:hover {
+  background-color: rgba(14, 165, 233, 0.06);
+}
+
+.data-table tbody tr.selected-row {
+  background-color: rgba(14, 165, 233, 0.12) !important;
+  box-shadow: inset 3px 0 0 #0ea5e9;
+}
+
+.data-table tbody td {
+  padding: 0.625rem 1rem;
+  font-size: 0.8125rem;
+  color: #cbd5e1;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ─── Toast Notification ──────────────────────────────── */
+.toast-enter-active {
+  animation: slideUp 0.3s ease-out;
+}
+
+.toast-leave-active {
+  animation: fadeOut 0.2s ease-in forwards;
+}
+
+@keyframes fadeOut {
+  to { opacity: 0; transform: translateY(-10px); }
+}
+
+/* ─── Spinner ─────────────────────────────────────────── */
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #0ea5e9;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

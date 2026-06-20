@@ -1,0 +1,602 @@
+<script setup>
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import Fuse from 'fuse.js'
+import * as XLSX from 'xlsx'
+import { useApi } from './composables/useApi'
+import TopActionBar from './components/TopActionBar.vue'
+import DataManipulation from './components/DataManipulation.vue'
+import SearchBar from './components/SearchBar.vue'
+import TablePreview from './components/TablePreview.vue'
+import ToastNotification from './components/ToastNotification.vue'
+import Sidebar from './components/Sidebar.vue'
+
+const api = useApi()
+
+// ─── State ───────────────────────────────────────────────
+const datasets = ref([])
+const currentDatasetId = ref(null)
+
+const columns = ref([])
+const rows = ref([])
+const selectedRow = ref(null)
+const searchQuery = ref('')
+const isLoading = ref(false)
+const toasts = ref([])
+
+const currentLanguage = ref('en')
+const fontSizeMultiplier = ref(1)
+
+watch(fontSizeMultiplier, (val) => {
+  document.documentElement.style.setProperty('--font-scale', val);
+}, { immediate: true })
+
+function increaseFontSize() {
+  if (fontSizeMultiplier.value < 1.5) fontSizeMultiplier.value += 0.1
+}
+
+function decreaseFontSize() {
+  if (fontSizeMultiplier.value > 0.7) fontSizeMultiplier.value -= 0.1
+}
+
+// ─── Fuzzy Search ────────────────────────────────────────
+const fuseInstance = computed(() => {
+  if (columns.value.length === 0) return null
+  return new Fuse(rows.value, {
+    keys: columns.value,
+    threshold: 0.4,
+    ignoreLocation: true,
+    includeScore: true,
+  })
+})
+
+const filteredRows = computed(() => {
+  if (!searchQuery.value.trim() || !fuseInstance.value) {
+    return rows.value
+  }
+  return fuseInstance.value.search(searchQuery.value).map(r => r.item)
+})
+
+const shortcuts = ref({}) // { "colName": "Ctrl+A" }
+
+// ─── Shortcuts ───────────────────────────────────────────
+function handleKeydown(e) {
+  if (!selectedRow.value) return;
+
+  // Format the typed key into our combo format
+  let combo = []
+  if (e.ctrlKey) combo.push('Ctrl')
+  if (e.altKey) combo.push('Alt')
+  if (e.shiftKey) combo.push('Shift')
+  
+  let keyStr = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key
+  
+  // Ignore pure modifier keys
+  if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+
+  combo.push(keyStr)
+  const finalCombo = combo.join('+')
+
+  for (const [colName, shortcutCombo] of Object.entries(shortcuts.value)) {
+    if (shortcutCombo === finalCombo) {
+      e.preventDefault();
+      const el = document.getElementById('cell-' + colName);
+      if (el) el.focus();
+      return;
+    }
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown);
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown);
+})
+
+function handleAssignShortcut({ colName, shortcut }) {
+  shortcuts.value[colName] = shortcut;
+  showToast(`Shortcut ${shortcut} assigned to ${colName}`, 'success');
+}
+
+// ─── Toast System ────────────────────────────────────────
+let toastId = 0
+function showToast(message, type = 'success') {
+  const id = ++toastId
+  toasts.value.push({ id, message, type })
+  setTimeout(() => {
+    toasts.value = toasts.value.filter(t => t.id !== id)
+  }, 3500)
+}
+
+// ─── Load Datasets ───────────────────────────────────────
+async function loadDatasets() {
+  try {
+    const metas = await api.getDatasets();
+    datasets.value = metas || [];
+    if (!currentDatasetId.value && datasets.value.length > 0) {
+      await selectDataset(datasets.value[0].id);
+    }
+  } catch (err) {
+    showToast(`Failed to load datasets: ${err.message}`, 'error')
+  }
+}
+
+async function selectDataset(id) {
+  currentDatasetId.value = id;
+  selectedRow.value = null;
+  searchQuery.value = '';
+  await loadCurrentDataset();
+}
+
+async function loadCurrentDataset() {
+  if (!currentDatasetId.value) return;
+  try {
+    isLoading.value = true
+    const data = await api.getRows(currentDatasetId.value)
+    columns.value = data.columns || []
+    rows.value = data.rows || []
+  } catch (err) {
+    columns.value = []
+    rows.value = []
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// ─── Upload Handler ──────────────────────────────────────
+async function handleUpload(file) {
+  try {
+    isLoading.value = true
+    const data = await file.arrayBuffer()
+    const workbook = XLSX.read(data, { type: 'array' })
+    const sheetName = workbook.SheetNames[0]
+    const sheet = workbook.Sheets[sheetName]
+    const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+
+    if (jsonData.length === 0) {
+      showToast('The file appears to be empty', 'error')
+      return
+    }
+
+    const cols = Object.keys(jsonData[0])
+    const result = await api.importDataset(file.name, cols, jsonData)
+    
+    await loadDatasets()
+    await selectDataset(result.id)
+    
+    showToast(`Imported ${jsonData.length} rows with ${cols.length} columns`, 'success')
+  } catch (err) {
+    showToast(`Upload failed: ${err.message}`, 'error')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// ─── Delete Dataset ──────────────────────────────────────
+async function handleDeleteDataset(id) {
+  if (!confirm('Are you sure you want to delete this dataset? This cannot be undone.')) return;
+  
+  try {
+    isLoading.value = true
+    await api.deleteDataset(id)
+    showToast('Dataset deleted successfully', 'success')
+    
+    if (currentDatasetId.value === id) {
+      currentDatasetId.value = null
+      columns.value = []
+      rows.value = []
+      selectedRow.value = null
+    }
+    await loadDatasets()
+  } catch (err) {
+    showToast(`Failed to delete dataset: ${err.message}`, 'error')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// ─── Export Handler ──────────────────────────────────────
+function handleExport() {
+  try {
+    const exportData = filteredRows.value.map(row => {
+      const clean = { ...row }
+      delete clean._id
+      return clean
+    })
+
+    if (exportData.length === 0) {
+      showToast('No data to export', 'error')
+      return
+    }
+
+    const ws = XLSX.utils.json_to_sheet(exportData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Dataset')
+    XLSX.writeFile(wb, `voide_export_${Date.now()}.xlsx`)
+    showToast(`Exported ${exportData.length} rows`, 'success')
+  } catch (err) {
+    showToast(`Export failed: ${err.message}`, 'error')
+  }
+}
+
+// ─── Row Selection ───────────────────────────────────────
+function handleRowSelect(row) {
+  selectedRow.value = row._id === selectedRow.value?._id ? null : { ...row }
+}
+
+// ─── Update Row ──────────────────────────────────────────
+async function handleUpdate(updates) {
+  if (!selectedRow.value || !currentDatasetId.value) return
+  try {
+    isLoading.value = true
+    await api.updateRow(currentDatasetId.value, selectedRow.value._id, updates)
+    await loadCurrentDataset()
+    // Re-select the updated row
+    const updated = rows.value.find(r => r._id === selectedRow.value._id)
+    selectedRow.value = updated ? { ...updated } : null
+    showToast('Row updated successfully', 'success')
+  } catch (err) {
+    showToast(`Update failed: ${err.message}`, 'error')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// ─── Delete Row ──────────────────────────────────────────
+async function handleDelete() {
+  if (!selectedRow.value || !currentDatasetId.value) return
+  try {
+    isLoading.value = true
+    await api.deleteRow(currentDatasetId.value, selectedRow.value._id)
+    selectedRow.value = null
+    await loadCurrentDataset()
+    showToast('Row deleted', 'success')
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 'error')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function handleDeselect() {
+  selectedRow.value = null
+}
+
+// ─── Column Actions ──────────────────────────────────────
+async function handleAddColumn(columnName) {
+  if (!currentDatasetId.value) return;
+  try {
+    isLoading.value = true;
+    await api.addColumn(currentDatasetId.value, columnName);
+    await loadCurrentDataset();
+    showToast(`Added column ${columnName}`, 'success');
+  } catch (err) {
+    showToast(`Failed to add column: ${err.message}`, 'error');
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+async function handleRenameColumn({ oldName, newName }) {
+  if (!currentDatasetId.value) return;
+  try {
+    isLoading.value = true;
+    await api.renameColumn(currentDatasetId.value, oldName, newName);
+    await loadCurrentDataset();
+    showToast(`Renamed ${oldName} to ${newName}`, 'success');
+  } catch (err) {
+    showToast(`Failed to rename column: ${err.message}`, 'error');
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+async function handleDeleteColumn(columnName) {
+  if (!currentDatasetId.value) return;
+  if (!confirm(`Are you sure you want to delete the column "${columnName}"? This action cannot be undone.`)) return;
+  try {
+    isLoading.value = true;
+    await api.deleteColumn(currentDatasetId.value, columnName);
+    await loadCurrentDataset();
+    showToast(`Deleted column ${columnName}`, 'success');
+  } catch (err) {
+    showToast(`Failed to delete column: ${err.message}`, 'error');
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+function handlePrint() {
+  window.print()
+}
+
+// Initial load
+loadDatasets()
+</script>
+
+<template>
+  <div class="h-screen flex flex-col overflow-hidden relative">
+    <!-- Background Gradient Blobs -->
+    <div class="fixed inset-0 -z-10 overflow-hidden">
+      <div class="absolute -top-40 -left-40 w-96 h-96 bg-accent-600/8 rounded-full blur-3xl"></div>
+      <div class="absolute top-1/3 -right-20 w-80 h-80 bg-purple-600/5 rounded-full blur-3xl"></div>
+      <div class="absolute -bottom-32 left-1/3 w-72 h-72 bg-accent-500/5 rounded-full blur-3xl"></div>
+    </div>
+
+    <!-- Header -->
+    <header class="flex-shrink-0 border-b border-surface-800/80 bg-surface-950/80 backdrop-blur-sm">
+      <div class="px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-accent-500 to-accent-700 flex items-center justify-center">
+            <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+            </svg>
+          </div>
+          <div>
+            <h1 class="text-lg font-semibold text-white tracking-tight">Voide Form</h1>
+            <p class="text-xs text-surface-500">Dataset Studio</p>
+          </div>
+        </div>
+        
+        <div class="flex items-center gap-4">
+          <!-- Font Size Controls -->
+          <div class="flex items-center bg-surface-800/60 rounded-lg p-1 border border-surface-700/40">
+            <button @click="decreaseFontSize" class="w-7 h-7 flex items-center justify-center text-surface-400 hover:text-surface-200 hover:bg-surface-700 rounded transition-colors text-xs font-semibold">A-</button>
+            <div class="w-px h-4 bg-surface-700/60 mx-1"></div>
+            <button @click="increaseFontSize" class="w-7 h-7 flex items-center justify-center text-surface-400 hover:text-surface-200 hover:bg-surface-700 rounded transition-colors text-sm font-semibold">A+</button>
+          </div>
+
+          <!-- Language Selector -->
+          <select v-model="currentLanguage" class="bg-surface-800/60 border border-surface-700/40 text-surface-300 text-xs rounded-lg focus:ring-accent-500 focus:border-accent-500 block px-2.5 py-1.5 outline-none cursor-pointer">
+            <option value="en">English (EN)</option>
+            <option value="ar">Arabic (AR)</option>
+            <option value="ckb">Kurdish (CKB)</option>
+          </select>
+
+          <div v-if="rows.length" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-800/60 border border-surface-700/40 text-xs text-surface-500">
+            <span class="w-1.5 h-1.5 rounded-full bg-success-400 animate-pulse-soft"></span>
+            {{ rows.length }} rows · {{ columns.length }} columns
+          </div>
+          <div v-if="isLoading" class="spinner"></div>
+        </div>
+      </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+      <!-- Sidebar -->
+      <Sidebar
+        class="no-print"
+        :datasets="datasets"
+        :current-dataset-id="currentDatasetId"
+        @select="selectDataset"
+        @delete="handleDeleteDataset"
+      />
+
+      <!-- Main Content -->
+      <main class="flex-1 overflow-hidden flex flex-col gap-4 p-6 print-main">
+        <!-- Top Section: Action Bar + Data Manipulation -->
+        <div class="flex-shrink-0 flex flex-col gap-4 animate-fade-in no-print">
+          <TopActionBar
+            :has-data="rows.length > 0"
+            :is-loading="isLoading"
+            @upload="handleUpload"
+            @export="handleExport"
+            @print="handlePrint"
+          />
+
+          <DataManipulation
+            :columns="columns"
+            :selected-row="selectedRow"
+            :shortcuts="shortcuts"
+            :current-language="currentLanguage"
+            @update="handleUpdate"
+            @delete="handleDelete"
+            @deselect="handleDeselect"
+            @rename-column="handleRenameColumn"
+            @assign-shortcut="handleAssignShortcut"
+          />
+
+          <SearchBar
+            v-model="searchQuery"
+            :total-count="rows.length"
+            :filtered-count="filteredRows.length"
+            :has-data="rows.length > 0"
+            :current-language="currentLanguage"
+          />
+        </div>
+
+        <!-- Table Preview -->
+        <div class="flex-1 min-h-0">
+          <TablePreview
+            :columns="columns"
+            :rows="filteredRows"
+            :selected-row="selectedRow"
+            :is-loading="isLoading"
+            @select="handleRowSelect"
+            @add-column="handleAddColumn"
+            @rename-column="handleRenameColumn"
+            @delete-column="handleDeleteColumn"
+          />
+        </div>
+      </main>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+      <TransitionGroup name="toast">
+        <ToastNotification
+          v-for="toast in toasts"
+          :key="toast.id"
+          :message="toast.message"
+          :type="toast.type"
+        />
+      </TransitionGroup>
+    </div>
+  </div>
+</template>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;600;700&display=swap');
+
+.print-only-layout {
+  display: none;
+}
+
+@font-face {
+  font-family: 'Unikurd Jino';
+  src: url('/fonts/UnikurdJino.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+:root {
+  --font-scale: 1;
+}
+
+/* Override Tailwind text sizes to only scale text, not layout */
+.text-xs { font-size: calc(0.75rem * var(--font-scale)) !important; line-height: calc(1rem * var(--font-scale)) !important; }
+.text-sm { font-size: calc(0.875rem * var(--font-scale)) !important; line-height: calc(1.25rem * var(--font-scale)) !important; }
+.text-base { font-size: calc(1rem * var(--font-scale)) !important; line-height: calc(1.5rem * var(--font-scale)) !important; }
+.text-lg { font-size: calc(1.125rem * var(--font-scale)) !important; line-height: calc(1.75rem * var(--font-scale)) !important; }
+.text-xl { font-size: calc(1.25rem * var(--font-scale)) !important; line-height: calc(1.75rem * var(--font-scale)) !important; }
+
+/* Keep icons relatively stable if they use relative sizes or just let them be */
+@media print {
+  /* Hide UI elements that shouldn't be printed */
+  .no-print, header, .fixed.inset-0, .fixed.bottom-6, button, input {
+    display: none !important;
+  }
+  
+  @page {
+    margin: 0;
+  }
+  
+  /* Aggressive reset for dark mode printing */
+  * {
+    color: #000000 !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Reset all container layouts so they don't restrict heights or hide overflow */
+  html, body, #app, #app > div, main, .print-main, .glass-panel, .min-h-0 {
+    background: transparent !important;
+    background-color: transparent !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+    position: static !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-family: 'Unikurd Jino', 'Noto Sans Arabic', Arial, sans-serif !important;
+  }
+
+  body {
+    padding: 0 !important;
+  }
+
+  .print-main {
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .print-only-layout {
+    display: block !important;
+  }
+
+  .print-page {
+    page-break-after: always !important;
+    break-after: page !important;
+    height: 100vh !important;
+    box-sizing: border-box !important;
+    position: relative !important;
+    padding: 1cm 1cm 1.2cm 1cm !important;
+    background-color: #ffffff !important;
+  }
+
+  .print-page-footer {
+    display: block !important;
+    position: absolute !important;
+    bottom: 1cm !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    font-size: 11pt !important;
+    font-family: Arial, sans-serif !important;
+    color: #000000 !important;
+    font-weight: bold !important;
+    text-align: center !important;
+  }
+  
+  .data-table {
+    display: table !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+    font-family: 'Unikurd Jino', 'Noto Sans Arabic', Arial, sans-serif !important;
+    font-size: 11pt !important;
+    border: 2px solid #000000 !important;
+    background-color: #ffffff !important;
+  }
+  
+  .data-table thead {
+    display: table-header-group !important;
+  }
+  
+  .data-table tbody {
+    display: table-row-group !important;
+  }
+  
+  .data-table tr {
+    page-break-inside: avoid !important;
+  }
+  
+  .data-table thead, .data-table tr, .data-table th, .data-table td {
+    background-color: transparent !important;
+  }
+  
+  .data-table th {
+    background-color: #000000 !important; /* Black background */
+    color: #ffffff !important; /* White text */
+    font-weight: bold !important;
+    border: 1px solid #000000 !important;
+    padding: 10px !important;
+    text-align: center !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    position: static !important;
+  }
+  
+  .data-table td {
+    border: 1px solid #000000 !important;
+    color: #000000 !important;
+    padding: 8px !important;
+    white-space: normal !important; /* Allow wrapping in printed view */
+    word-break: break-word !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    max-width: none !important;
+  }
+  
+  /* Striped rows */
+  .data-table tbody tr:nth-child(odd) td {
+    background-color: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  
+  .data-table tbody tr:nth-child(even) td {
+    background-color: #f3f4f6 !important; /* Light gray row */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Ultimate fallback override at the very end to guarantee no-print utility always wins */
+  .no-print, .no-print * {
+    display: none !important;
+  }
+}
+</style>
