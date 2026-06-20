@@ -259,6 +259,36 @@ function deleteDataset(datasetId) {
   return true;
 }
 
+/**
+ * Add a new empty row to a dataset
+ */
+function addRow(datasetId, rowData = {}) {
+  const db = getDb();
+  const meta = getMeta(datasetId);
+  if (!meta) throw new Error('Dataset not found');
+
+  const cols = meta.columns;
+  if (cols.length === 0) {
+    const result = db.prepare(`INSERT INTO "${meta.tableName}" DEFAULT VALUES`).run();
+    return { _id: result.lastInsertRowid };
+  }
+
+  const fields = [];
+  const placeholders = [];
+  const values = [];
+
+  for (const col of cols) {
+    fields.push(`"${col}"`);
+    placeholders.push('?');
+    values.push(rowData[col] !== undefined ? String(rowData[col]) : '');
+  }
+
+  const sql = `INSERT INTO "${meta.tableName}" (${fields.join(', ')}) VALUES (${placeholders.join(', ')})`;
+  const result = db.prepare(sql).run(...values);
+  
+  return db.prepare(`SELECT * FROM "${meta.tableName}" WHERE _id = ?`).get(result.lastInsertRowid);
+}
+
 module.exports = {
   getDb,
   importDataset,
@@ -266,6 +296,7 @@ module.exports = {
   getMeta,
   getAllRows,
   getRowById,
+  addRow,
   updateRow,
   deleteRow,
   addColumn,
@@ -273,3 +304,4 @@ module.exports = {
   deleteColumn,
   deleteDataset
 };
+

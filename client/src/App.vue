@@ -263,6 +263,24 @@ function handleDeselect() {
   selectedRow.value = null
 }
 
+// ─── Add Row ─────────────────────────────────────────────
+async function handleAddRow() {
+  if (!currentDatasetId.value) return
+  try {
+    isLoading.value = true
+    const newRow = await api.addRow(currentDatasetId.value)
+    await loadCurrentDataset()
+    // Re-select the newly added row so the user can immediately edit it!
+    const inserted = rows.value.find(r => r._id === newRow._id)
+    selectedRow.value = inserted ? { ...inserted } : null
+    showToast('New row added successfully', 'success')
+  } catch (err) {
+    showToast(`Failed to add row: ${err.message}`, 'error')
+  } finally {
+    isLoading.value = false
+  }
+}
+
 // ─── Column Actions ──────────────────────────────────────
 async function handleAddColumn(columnName) {
   if (!currentDatasetId.value) return;
@@ -414,6 +432,7 @@ loadDatasets()
             :selected-row="selectedRow"
             :is-loading="isLoading"
             @select="handleRowSelect"
+            @add-row="handleAddRow"
             @add-column="handleAddColumn"
             @rename-column="handleRenameColumn"
             @delete-column="handleDeleteColumn"

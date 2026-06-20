@@ -8,7 +8,7 @@ const props = defineProps({
   isLoading: Boolean,
 })
 
-const emit = defineEmits(['select', 'add-column', 'rename-column', 'delete-column'])
+const emit = defineEmits(['select', 'add-row', 'add-column', 'rename-column', 'delete-column'])
 
 const hasData = computed(() => props.columns.length > 0 && props.rows.length > 0)
 
@@ -73,13 +73,28 @@ function finishRename() {
   <div class="glass-panel flex flex-col h-full overflow-hidden">
     <!-- Table Header Info -->
     <div class="flex-shrink-0 px-5 py-3 border-b border-surface-700/30 flex items-center justify-between no-print">
-      <div class="flex items-center gap-2">
-        <svg class="w-4 h-4 text-surface-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-        </svg>
-        <h2 class="text-sm font-semibold text-surface-200">Table Preview</h2>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-surface-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          <h2 class="text-sm font-semibold text-surface-200">Table Preview</h2>
+        </div>
+        
+        <!-- Add Row Button -->
+        <button 
+          v-if="columns.length > 0"
+          id="btn-add-row"
+          @click="$emit('add-row')"
+          class="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg bg-accent-600 hover:bg-accent-500 text-white transition-all shadow-sm no-print"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Add Row
+        </button>
       </div>
-      <span v-if="hasData" class="text-xs text-surface-500 font-mono">
+      <span v-if="columns.length > 0" class="text-xs text-surface-500 font-mono">
         {{ rows.length }} row{{ rows.length !== 1 ? 's' : '' }}
       </span>
     </div>
@@ -87,7 +102,7 @@ function finishRename() {
     <!-- Table Content -->
     <div class="flex-1 overflow-auto no-print">
       <!-- Loading State -->
-      <div v-if="isLoading && !hasData" class="flex items-center justify-center h-full">
+      <div v-if="isLoading && !columns.length" class="flex items-center justify-center h-full">
         <div class="text-center">
           <div class="spinner mx-auto mb-3"></div>
           <p class="text-sm text-surface-500">Loading dataset…</p>
@@ -95,7 +110,7 @@ function finishRename() {
       </div>
 
       <!-- Empty State -->
-      <div v-else-if="!hasData" class="flex items-center justify-center h-full">
+      <div v-else-if="!columns.length" class="flex items-center justify-center h-full">
         <div class="text-center px-6 max-w-md">
           <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-surface-800/60 border border-surface-700/40 flex items-center justify-center">
             <svg class="w-8 h-8 text-surface-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -176,7 +191,13 @@ function finishRename() {
           </tr>
         </thead>
         <tbody>
+          <tr v-if="rows.length === 0" class="no-print">
+            <td :colspan="columns.length + 2" class="text-center py-8 text-surface-500 text-sm italic">
+              No rows in this dataset. Click "Add Row" to start adding data.
+            </td>
+          </tr>
           <tr
+            v-else
             v-for="(row, idx) in rows"
             :key="row._id"
             :class="{ 'selected-row': selectedRow?._id === row._id }"

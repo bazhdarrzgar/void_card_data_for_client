@@ -6,6 +6,7 @@ const {
   getMeta,
   getAllRows,
   getRowById,
+  addRow,
   updateRow,
   deleteRow,
   addColumn,
@@ -73,6 +74,15 @@ app.get('/api/datasets/:datasetId/rows', (req, res) => {
   try {
     const data = getAllRows(Number(req.params.datasetId));
     res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/datasets/:datasetId/rows', (req, res) => {
+  try {
+    const row = addRow(Number(req.params.datasetId), req.body || {});
+    res.json({ success: true, data: row });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

@@ -36,6 +36,12 @@ export function useApi() {
       method: 'DELETE',
     });
 
+  const addRow = (datasetId, rowData = {}) =>
+    request(`/datasets/${datasetId}/rows`, {
+      method: 'POST',
+      body: JSON.stringify(rowData),
+    });
+
   const addColumn = (datasetId, columnName) =>
     request(`/datasets/${datasetId}/columns`, {
       method: 'POST',
@@ -60,6 +66,7 @@ export function useApi() {
     getRows,
     getRow,
     importDataset,
+    addRow,
     updateRow,
     deleteRow,
     addColumn,
