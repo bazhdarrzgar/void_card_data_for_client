@@ -64,3 +64,8 @@ also create .bat file to run this project in dev mod
 
 i wanna backup is advance i wanna backup images that i upload it to columns images and also backup this directory that i mension in the columns ....
 
+please add button send data by moving or copy from one excel to another excel in the database when i click to send
+i wanna show me copy or move and send to what excel or what table in the database 
+
+add one things for me for export the excell i wanna take me two choice when i click to export the excell i wanna tell
+me export entier 

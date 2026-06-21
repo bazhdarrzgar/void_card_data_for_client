@@ -126,6 +126,34 @@ app.delete('/api/datasets/:datasetId/rows/:id', (req, res) => {
   }
 });
 
+app.post('/api/datasets/transfer-row', (req, res) => {
+  try {
+    const { sourceDatasetId, targetDatasetId, rowId, operation } = req.body;
+    if (!sourceDatasetId || !targetDatasetId || !rowId || !operation) {
+      return res.status(400).json({ success: false, error: 'Missing required parameters' });
+    }
+
+    if (Number(sourceDatasetId) === Number(targetDatasetId) && operation === 'move') {
+      return res.status(400).json({ success: false, error: 'Cannot move a row to the same dataset' });
+    }
+
+    const sourceRow = getRowById(Number(sourceDatasetId), Number(rowId));
+    if (!sourceRow) {
+      return res.status(404).json({ success: false, error: 'Source row not found' });
+    }
+
+    const newRow = addRow(Number(targetDatasetId), sourceRow);
+
+    if (operation === 'move') {
+      deleteRow(Number(sourceDatasetId), Number(rowId));
+    }
+
+    res.json({ success: true, data: { newRow } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─── Dataset Columns ─────────────────────────────────────────
 app.post('/api/datasets/:datasetId/columns', (req, res) => {
   try {

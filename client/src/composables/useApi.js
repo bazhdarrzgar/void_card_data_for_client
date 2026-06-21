@@ -83,6 +83,12 @@ export function useApi() {
 
   const getBackupDownloadUrl = (taskId) => `${API_BASE}/backup/download/${taskId}`;
 
+  const transferRow = (sourceDatasetId, targetDatasetId, rowId, operation) =>
+    request('/datasets/transfer-row', {
+      method: 'POST',
+      body: JSON.stringify({ sourceDatasetId, targetDatasetId, rowId, operation })
+    });
+
   return {
     getDatasets,
     getDatasetMeta,
@@ -100,6 +106,7 @@ export function useApi() {
     openDirectory,
     startBackup,
     getBackupStatus,
-    getBackupDownloadUrl
+    getBackupDownloadUrl,
+    transferRow
   };
 }

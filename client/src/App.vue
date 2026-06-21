@@ -15,6 +15,9 @@ const api = useApi()
 // ─── State ───────────────────────────────────────────────
 const datasets = ref([])
 const currentDatasetId = ref(null)
+const otherDatasets = computed(() => {
+  return datasets.value.filter(ds => ds.id !== currentDatasetId.value)
+})
 
 // ─── Print Configuration State ───────────────────────────
 const showPrintModal = ref(false)
@@ -26,6 +29,11 @@ const showBackupModal = ref(false)
 const backupProgress = ref(0)
 const backupStatus = ref('') // 'running' | 'done' | 'failed'
 const backupError = ref('')
+
+const showSendModal = ref(false)
+const sendTargetDatasetId = ref(null)
+const sendOperation = ref('copy')
+const isSending = ref(false)
 
 const columns = ref([])
 const columnTypes = ref({})
@@ -277,6 +285,43 @@ function handleDeselect() {
   selectedRow.value = null
 }
 
+// ─── Transfer / Send Row ─────────────────────────────────
+function handleSendRowInitiate(row) {
+  sendTargetDatasetId.value = null
+  sendOperation.value = 'copy'
+  showSendModal.value = true
+}
+
+async function confirmSendRow() {
+  if (!selectedRow.value || !currentDatasetId.value || !sendTargetDatasetId.value) return
+  
+  isSending.value = true
+  try {
+    await api.transferRow(
+      currentDatasetId.value,
+      sendTargetDatasetId.value,
+      selectedRow.value._id,
+      sendOperation.value
+    )
+
+    showToast(
+      `Row successfully ${sendOperation.value === 'copy' ? 'copied' : 'moved'}!`,
+      'success'
+    )
+    
+    if (sendOperation.value === 'move') {
+      rows.value = rows.value.filter(r => r._id !== selectedRow.value._id)
+      selectedRow.value = null
+    }
+    
+    showSendModal.value = false
+  } catch (err) {
+    showToast(`Failed to transfer row: ${err.message}`, 'error')
+  } finally {
+    isSending.value = false
+  }
+}
+
 // ─── Add Row ─────────────────────────────────────────────
 async function handleAddRow() {
   if (!currentDatasetId.value) return
@@ -526,6 +571,7 @@ loadDatasets()
             @deselect="handleDeselect"
             @rename-column="handleRenameColumn"
             @assign-shortcut="handleAssignShortcut"
+            @send-row="handleSendRowInitiate"
           />
 
           <SearchBar
@@ -703,6 +749,124 @@ loadDatasets()
           >
             Close
           </button>
+        </div>
+    </div>
+
+    <!-- Send Row (Transfer) Modal (no-print) -->
+    <div v-if="showSendModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-950/70 backdrop-blur-sm no-print animate-fade-in">
+      <div class="glass-panel w-full max-w-md p-6 overflow-hidden rounded-xl border border-surface-700/40 shadow-2xl relative bg-surface-900/90">
+        <!-- Close Button -->
+        <button 
+          @click="showSendModal = false" 
+          class="absolute top-4 right-4 text-surface-400 hover:text-surface-200 transition-colors"
+        >
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 rounded-lg bg-accent-500/10 flex items-center justify-center text-accent-400">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-base font-semibold text-surface-100">Send Row Data</h3>
+            <p class="text-xs text-surface-450">Copy or Move this row to another dataset table</p>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <!-- Operation Type -->
+          <div>
+            <label class="block text-xs font-semibold text-surface-350 mb-2">Operation Type</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button 
+                type="button"
+                @click="sendOperation = 'copy'"
+                :class="sendOperation === 'copy' ? 'border-accent-500 bg-accent-500/10 text-accent-400' : 'border-surface-750 bg-surface-800/40 text-surface-400'"
+                class="flex items-center justify-center gap-2 p-2.5 rounded-lg border text-xs font-semibold transition-all duration-200"
+              >
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2m0 0h2a2 2 0 012 2v3m-2-3H8" />
+                </svg>
+                Copy Row
+              </button>
+              <button 
+                type="button"
+                @click="sendOperation = 'move'"
+                :class="sendOperation === 'move' ? 'border-accent-500 bg-accent-500/10 text-accent-400' : 'border-surface-750 bg-surface-800/40 text-surface-400'"
+                class="flex items-center justify-center gap-2 p-2.5 rounded-lg border text-xs font-semibold transition-all duration-200"
+              >
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Move Row
+              </button>
+            </div>
+            <p class="text-[10px] text-surface-500 mt-1.5 leading-relaxed">
+              {{ sendOperation === 'copy' ? 'Creates a copy of the row in the target dataset. The original row will remain untouched.' : 'Moves the row to the target dataset and deletes it from the current dataset.' }}
+            </p>
+          </div>
+
+          <!-- Target Dataset Selection -->
+          <div>
+            <label class="block text-xs font-semibold text-surface-350 mb-2">Target Dataset (Excel Table)</label>
+            <select 
+              v-model="sendTargetDatasetId"
+              class="w-full bg-surface-950 text-surface-200 border border-surface-700/60 rounded-lg p-2.5 text-xs focus:outline-none focus:border-accent-500"
+            >
+              <option :value="null" disabled>Select target dataset...</option>
+              <option 
+                v-for="ds in otherDatasets" 
+                :key="ds.id" 
+                :value="ds.id"
+              >
+                {{ ds.displayName }} ({{ ds.tableName }})
+              </option>
+            </select>
+          </div>
+
+          <!-- Column Matching Info Warning -->
+          <div class="p-3 bg-surface-950/40 border border-surface-800/80 rounded-lg flex gap-2">
+            <svg class="w-4 h-4 text-accent-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p class="text-[10px] text-surface-450 leading-relaxed font-medium">
+              Only columns with the exact same names will have their data copied. Non-existent target columns will be left blank.
+            </p>
+          </div>
+
+          <!-- Action buttons -->
+          <div class="flex items-center gap-3 pt-2">
+            <button 
+              type="button" 
+              class="w-1/2 btn-ghost text-xs py-2"
+              @click="showSendModal = false"
+              :disabled="isSending"
+            >
+              Cancel
+            </button>
+            <button 
+              type="button" 
+              class="w-1/2 btn-primary text-xs py-2"
+              @click="confirmSendRow"
+              :disabled="!sendTargetDatasetId || isSending"
+              :class="{ 'opacity-40 cursor-not-allowed': !sendTargetDatasetId || isSending }"
+            >
+              <span v-if="isSending" class="flex items-center gap-1.5 justify-center">
+                <span class="w-3.5 h-3.5 border-2 border-surface-300 border-t-transparent rounded-full animate-spin"></span>
+                Sending...
+              </span>
+              <span v-else class="flex items-center gap-1.5 justify-center">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Send Data
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
