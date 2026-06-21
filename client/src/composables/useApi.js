@@ -19,10 +19,10 @@ export function useApi() {
   const getRows = (datasetId) => request(`/datasets/${datasetId}/rows`);
   const getRow = (datasetId, rowId) => request(`/datasets/${datasetId}/rows/${rowId}`);
 
-  const importDataset = (name, columns, rows) =>
+  const importDataset = (name, columns, rows, originalName, folderId) =>
     request('/datasets', {
       method: 'POST',
-      body: JSON.stringify({ name, columns, rows }),
+      body: JSON.stringify({ name, columns, rows, originalName, folderId }),
     });
 
   const updateRow = (datasetId, rowId, updates) =>
@@ -89,6 +89,45 @@ export function useApi() {
       body: JSON.stringify({ sourceDatasetId, targetDatasetId, rowId, operation })
     });
 
+  const renameDataset = (datasetId, name) =>
+    request(`/datasets/${datasetId}/rename`, {
+      method: 'PUT',
+      body: JSON.stringify({ name })
+    });
+
+  const moveDataset = (datasetId, folderId) =>
+    request(`/datasets/${datasetId}/move`, {
+      method: 'PUT',
+      body: JSON.stringify({ folderId })
+    });
+
+  const getFolders = () => request('/folders');
+
+  const createFolder = (name) =>
+    request('/folders', {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    });
+
+  const renameFolder = (folderId, name) =>
+    request(`/folders/${folderId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name })
+    });
+
+  const deleteFolder = (folderId) =>
+    request(`/folders/${folderId}`, {
+      method: 'DELETE'
+    });
+
+  const globalSearch = (query, folderId = null) => {
+    let url = `/search?q=${encodeURIComponent(query)}`;
+    if (folderId) {
+      url += `&folderId=${folderId}`;
+    }
+    return request(url);
+  };
+
   return {
     getDatasets,
     getDatasetMeta,
@@ -107,6 +146,13 @@ export function useApi() {
     startBackup,
     getBackupStatus,
     getBackupDownloadUrl,
-    transferRow
+    transferRow,
+    renameDataset,
+    moveDataset,
+    getFolders,
+    createFolder,
+    renameFolder,
+    deleteFolder,
+    globalSearch
   };
 }

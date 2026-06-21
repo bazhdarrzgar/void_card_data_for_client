@@ -9,11 +9,13 @@ import SearchBar from './components/SearchBar.vue'
 import TablePreview from './components/TablePreview.vue'
 import ToastNotification from './components/ToastNotification.vue'
 import Sidebar from './components/Sidebar.vue'
+import GlobalSearchModal from './components/GlobalSearchModal.vue'
 
 const api = useApi()
 
 // ─── State ───────────────────────────────────────────────
 const datasets = ref([])
+const folders = ref([])
 const currentDatasetId = ref(null)
 const otherDatasets = computed(() => {
   return datasets.value.filter(ds => ds.id !== currentDatasetId.value)
@@ -38,6 +40,8 @@ const isSending = ref(false)
 const showExportModal = ref(false)
 const exportOption = ref('all') // 'all' or 'custom'
 const exportSelection = ref([])
+
+const showGlobalSearch = ref(false)
 
 const columns = ref([])
 const columnTypes = ref({})
@@ -146,6 +150,15 @@ async function loadDatasets() {
   }
 }
 
+async function loadFolders() {
+  try {
+    const data = await api.getFolders();
+    folders.value = data || [];
+  } catch (err) {
+    showToast(`Failed to load folders: ${err.message}`, 'error')
+  }
+}
+
 async function selectDataset(id) {
   currentDatasetId.value = id;
   selectedRow.value = null;
@@ -186,7 +199,10 @@ async function handleUpload(file) {
     }
 
     const cols = Object.keys(jsonData[0])
-    const result = await api.importDataset(file.name, cols, jsonData)
+    // Prompt for target folder optionally? Or just put in root (folderId = null).
+    // We will just put it in root for now. The sidebar will have drag-n-drop or move.
+    const originalName = file.name;
+    const result = await api.importDataset(file.name.replace(/\.[^/.]+$/, ""), cols, jsonData, originalName, null)
     
     await loadDatasets()
     await selectDataset(result.id)
@@ -516,7 +532,74 @@ async function handleBackup() {
   }
 }
 
+async function handleRenameDataset({ id, newName }) {
+  try {
+    await api.renameDataset(id, newName);
+    await loadDatasets();
+    showToast('Dataset renamed', 'success');
+  } catch (err) {
+    showToast(`Rename failed: ${err.message}`, 'error');
+  }
+}
+
+async function handleMoveDataset({ id, folderId }) {
+  try {
+    await api.moveDataset(id, folderId);
+    await loadDatasets();
+    showToast('Dataset moved', 'success');
+  } catch (err) {
+    showToast(`Move failed: ${err.message}`, 'error');
+  }
+}
+
+async function handleCreateFolder(name) {
+  try {
+    await api.createFolder(name);
+    await loadFolders();
+    showToast('Folder created', 'success');
+  } catch (err) {
+    showToast(`Create folder failed: ${err.message}`, 'error');
+  }
+}
+
+async function handleRenameFolder({ id, name }) {
+  try {
+    await api.renameFolder(id, name);
+    await loadFolders();
+    showToast('Folder renamed', 'success');
+  } catch (err) {
+    showToast(`Rename folder failed: ${err.message}`, 'error');
+  }
+}
+
+async function handleDeleteFolder(id) {
+  try {
+    await api.deleteFolder(id);
+    await loadFolders();
+    await loadDatasets(); // datasets in this folder are moved to root
+    showToast('Folder deleted', 'success');
+  } catch (err) {
+    showToast(`Delete folder failed: ${err.message}`, 'error');
+  }
+}
+
+async function handleGlobalSearchResult(result) {
+  showGlobalSearch.value = false;
+  if (currentDatasetId.value !== result.datasetId) {
+    await selectDataset(result.datasetId);
+  }
+  
+  // Find the exact row in the current table by _id and select it.
+  const targetRow = rows.value.find(r => r._id === result.row._id);
+  if (targetRow) {
+    selectedRow.value = { ...targetRow };
+  } else {
+    showToast('Row not found in dataset view.', 'error');
+  }
+}
+
 // Initial load
+loadFolders()
 loadDatasets()
 </script>
 
@@ -573,9 +656,16 @@ loadDatasets()
       <Sidebar
         class="no-print"
         :datasets="datasets"
+        :folders="folders"
         :current-dataset-id="currentDatasetId"
         @select="selectDataset"
         @delete="handleDeleteDataset"
+        @rename-dataset="handleRenameDataset"
+        @move-dataset="handleMoveDataset"
+        @create-folder="handleCreateFolder"
+        @rename-folder="handleRenameFolder"
+        @delete-folder="handleDeleteFolder"
+        @open-global-search="showGlobalSearch = true"
       />
 
       <!-- Main Content -->
@@ -1001,6 +1091,14 @@ loadDatasets()
         </div>
       </div>
     </div>
+
+    <!-- Global Search Modal -->
+    <GlobalSearchModal
+      v-if="showGlobalSearch"
+      :folders="folders"
+      @close="showGlobalSearch = false"
+      @select-result="handleGlobalSearchResult"
+    />
 
     <!-- Toast Notifications -->
     <div class="fixed bottom-6 right-6 z-50 flex flex-col gap-2">

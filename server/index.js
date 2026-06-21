@@ -17,7 +17,14 @@ const {
   renameColumn,
   deleteColumn,
   deleteDataset,
-  updateColumnsOrder
+  updateColumnsOrder,
+  renameDataset,
+  moveDatasetToFolder,
+  getFolders,
+  createFolder,
+  renameFolder,
+  deleteFolder,
+  globalSearch
 } = require('./database');
 
 const backupTasks = {};
@@ -55,11 +62,11 @@ app.get('/api/datasets/:id/meta', (req, res) => {
 // ─── Import Dataset ──────────────────────────────────────────
 app.post('/api/datasets', (req, res) => {
   try {
-    const { name, columns, rows } = req.body;
+    const { name, columns, rows, originalName, folderId } = req.body;
     if (!name || !columns) {
       return res.status(400).json({ success: false, error: 'name and columns are required' });
     }
-    const result = importDataset(name, columns, rows || []);
+    const result = importDataset(name, columns, rows || [], originalName || name, folderId || null);
     res.json({ success: true, data: result });
   } catch (err) {
     console.error('Import error:', err);
@@ -71,6 +78,83 @@ app.delete('/api/datasets/:id', (req, res) => {
   try {
     deleteDataset(Number(req.params.id));
     res.json({ success: true, message: 'Dataset deleted' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/datasets/:id/rename', (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ success: false, error: 'name is required' });
+    renameDataset(Number(req.params.id), name);
+    res.json({ success: true, message: 'Dataset renamed' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/datasets/:id/move', (req, res) => {
+  try {
+    const { folderId } = req.body;
+    moveDatasetToFolder(Number(req.params.id), folderId === undefined ? null : folderId);
+    res.json({ success: true, message: 'Dataset moved' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── Folders ─────────────────────────────────────────────────
+app.get('/api/folders', (req, res) => {
+  try {
+    const folders = getFolders();
+    res.json({ success: true, data: folders });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/folders', (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ success: false, error: 'name is required' });
+    const folder = createFolder(name);
+    res.json({ success: true, data: folder });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/folders/:id', (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ success: false, error: 'name is required' });
+    renameFolder(Number(req.params.id), name);
+    res.json({ success: true, message: 'Folder renamed' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/folders/:id', (req, res) => {
+  try {
+    deleteFolder(Number(req.params.id));
+    res.json({ success: true, message: 'Folder deleted' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── Global Search ───────────────────────────────────────────
+app.get('/api/search', (req, res) => {
+  try {
+    const { q, folderId } = req.query;
+    if (!q) {
+      return res.status(400).json({ success: false, error: 'Query parameter "q" is required' });
+    }
+    const fId = folderId ? Number(folderId) : null;
+    const results = globalSearch(q, fId);
+    res.json({ success: true, data: results });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

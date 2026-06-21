@@ -1,5 +1,6 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const Fuse = require('fuse.js');
 
 const DB_PATH = path.join(__dirname, 'data.db');
 let db;
@@ -16,9 +17,20 @@ function getDb() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         table_name TEXT NOT NULL UNIQUE,
         display_name TEXT NOT NULL,
+        original_name TEXT,
+        folder_id INTEGER,
         columns TEXT NOT NULL DEFAULT '[]',
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    // Folders table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS _folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
       )
     `);
 
@@ -28,6 +40,14 @@ function getDb() {
     } catch (e) {
       // Column already exists, ignore error
     }
+    // Migration: Add original_name to _meta
+    try {
+      db.exec(`ALTER TABLE _meta ADD COLUMN original_name TEXT`);
+    } catch (e) {}
+    // Migration: Add folder_id to _meta
+    try {
+      db.exec(`ALTER TABLE _meta ADD COLUMN folder_id INTEGER`);
+    } catch (e) {}
   }
   return db;
 }
@@ -46,7 +66,7 @@ function sanitizeName(name, prefix = 'col') {
 /**
  * Import a new dataset
  */
-function importDataset(displayName, columns, rows) {
+function importDataset(displayName, columns, rows, originalName = null, folderId = null) {
   const db = getDb();
   
   // Create unique table name
@@ -93,10 +113,10 @@ function importDataset(displayName, columns, rows) {
 
   // Insert meta
   const insertMeta = db.prepare(`
-    INSERT INTO _meta (table_name, display_name, columns, column_types, updated_at)
-    VALUES (?, ?, ?, ?, datetime('now'))
+    INSERT INTO _meta (table_name, display_name, columns, column_types, original_name, folder_id, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
   `);
-  const result = insertMeta.run(tableName, displayName, JSON.stringify(uniqueCols), '{}');
+  const result = insertMeta.run(tableName, displayName, JSON.stringify(uniqueCols), '{}', originalName, folderId);
 
   return { id: result.lastInsertRowid, tableName, columns: uniqueCols, rowCount: rows ? rows.length : 0 };
 }
@@ -117,6 +137,8 @@ function getAllMeta() {
       id: m.id,
       tableName: m.table_name,
       displayName: m.display_name,
+      originalName: m.original_name,
+      folderId: m.folder_id,
       columns: JSON.parse(m.columns),
       columnTypes,
       createdAt: m.created_at,
@@ -144,6 +166,8 @@ function getMeta(id) {
     id: meta.id,
     tableName: meta.table_name,
     displayName: meta.display_name,
+    originalName: meta.original_name,
+    folderId: meta.folder_id,
     columns: JSON.parse(meta.columns),
     columnTypes,
     createdAt: meta.created_at,
@@ -344,6 +368,119 @@ function addRow(datasetId, rowData = {}) {
   return db.prepare(`SELECT * FROM "${meta.tableName}" WHERE _id = ?`).get(result.lastInsertRowid);
 }
 
+function renameDataset(datasetId, newName) {
+  const db = getDb();
+  const meta = getMeta(datasetId);
+  if (!meta) throw new Error('Dataset not found');
+
+  // If original_name is null, it means it's an old dataset or hasn't been set.
+  // Save the current display_name as original_name before renaming.
+  if (!meta.originalName) {
+    db.prepare(`UPDATE _meta SET original_name = ? WHERE id = ?`).run(meta.displayName, datasetId);
+  }
+
+  db.prepare(`UPDATE _meta SET display_name = ?, updated_at = datetime('now') WHERE id = ?`).run(newName, datasetId);
+  return true;
+}
+
+function moveDatasetToFolder(datasetId, folderId) {
+  const db = getDb();
+  const meta = getMeta(datasetId);
+  if (!meta) throw new Error('Dataset not found');
+  
+  db.prepare(`UPDATE _meta SET folder_id = ?, updated_at = datetime('now') WHERE id = ?`).run(folderId, datasetId);
+  return true;
+}
+
+// Folders API
+function getFolders() {
+  const db = getDb();
+  return db.prepare('SELECT * FROM _folders ORDER BY created_at ASC').all();
+}
+
+function createFolder(name) {
+  const db = getDb();
+  const result = db.prepare('INSERT INTO _folders (name) VALUES (?)').run(name);
+  return { id: result.lastInsertRowid, name };
+}
+
+function renameFolder(folderId, newName) {
+  const db = getDb();
+  const result = db.prepare('UPDATE _folders SET name = ? WHERE id = ?').run(newName, folderId);
+  if (result.changes === 0) throw new Error('Folder not found');
+  return true;
+}
+
+function deleteFolder(folderId) {
+  const db = getDb();
+  // Set folder_id to null for datasets in this folder
+  db.prepare('UPDATE _meta SET folder_id = NULL WHERE folder_id = ?').run(folderId);
+  const result = db.prepare('DELETE FROM _folders WHERE id = ?').run(folderId);
+  if (result.changes === 0) throw new Error('Folder not found');
+  return true;
+}
+
+function globalSearch(query, folderId = null) {
+  const db = getDb();
+  let sql = 'SELECT * FROM _meta';
+  const params = [];
+  
+  if (folderId !== null) {
+    sql += ' WHERE folder_id = ?';
+    params.push(folderId);
+  }
+  
+  const datasets = db.prepare(sql).all();
+  let allResults = [];
+
+  for (const meta of datasets) {
+    let columns = [];
+    try {
+      columns = JSON.parse(meta.columns);
+    } catch (e) {
+      continue;
+    }
+    
+    if (columns.length === 0) continue;
+
+    let rows = [];
+    try {
+      rows = db.prepare(`SELECT * FROM "${meta.table_name}"`).all();
+    } catch (e) {
+      console.error(`Error querying table ${meta.table_name}:`, e.message);
+      continue;
+    }
+    
+    if (rows.length === 0) continue;
+
+    const fuse = new Fuse(rows, {
+      keys: columns,
+      threshold: 0.4,
+      ignoreLocation: true,
+      includeScore: true
+    });
+
+    const searchResults = fuse.search(query);
+    for (const res of searchResults) {
+      allResults.push({
+        datasetId: meta.id,
+        datasetName: meta.display_name,
+        originalName: meta.original_name,
+        folderId: meta.folder_id,
+        columns: columns,
+        score: res.score,
+        row: res.item
+      });
+    }
+  }
+
+  // Sort globally by score
+  allResults.sort((a, b) => a.score - b.score);
+  
+  // Return top 100 to avoid massive payloads
+  return allResults.slice(0, 100);
+}
+
 module.exports = {
   getDb,
   importDataset,
@@ -358,6 +495,13 @@ module.exports = {
   renameColumn,
   deleteColumn,
   deleteDataset,
-  updateColumnsOrder
+  updateColumnsOrder,
+  renameDataset,
+  moveDatasetToFolder,
+  getFolders,
+  createFolder,
+  renameFolder,
+  deleteFolder,
+  globalSearch
 };
 
