@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import Fuse from 'fuse.js'
 import * as XLSX from 'xlsx'
 import { useApi } from './composables/useApi'
@@ -16,7 +16,14 @@ const api = useApi()
 const datasets = ref([])
 const currentDatasetId = ref(null)
 
+// ─── Print Configuration State ───────────────────────────
+const showPrintModal = ref(false)
+const printOption = ref('all') // 'all' or 'custom'
+const printSelection = ref([])
+const columnsToPrint = ref(null)
+
 const columns = ref([])
+const columnTypes = ref({})
 const rows = ref([])
 const selectedRow = ref(null)
 const searchQuery = ref('')
@@ -135,9 +142,11 @@ async function loadCurrentDataset() {
     isLoading.value = true
     const data = await api.getRows(currentDatasetId.value)
     columns.value = data.columns || []
+    columnTypes.value = data.columnTypes || {}
     rows.value = data.rows || []
   } catch (err) {
     columns.value = []
+    columnTypes.value = {}
     rows.value = []
   } finally {
     isLoading.value = false
@@ -282,17 +291,27 @@ async function handleAddRow() {
 }
 
 // ─── Column Actions ──────────────────────────────────────
-async function handleAddColumn(columnName) {
+async function handleAddColumn(colData) {
   if (!currentDatasetId.value) return;
   try {
     isLoading.value = true;
-    await api.addColumn(currentDatasetId.value, columnName);
+    const name = typeof colData === 'object' ? colData.name : colData;
+    const type = typeof colData === 'object' ? colData.type : 'text';
+    await api.addColumn(currentDatasetId.value, name, type);
     await loadCurrentDataset();
-    showToast(`Added column ${columnName}`, 'success');
+    showToast(`Added column "${name}" (${type})`, 'success');
   } catch (err) {
     showToast(`Failed to add column: ${err.message}`, 'error');
   } finally {
     isLoading.value = false;
+  }
+}
+
+async function handleOpenDirectory(dirPath) {
+  try {
+    await api.openDirectory(dirPath);
+  } catch (err) {
+    showToast(`Failed to open directory: ${err.message}`, 'error');
   }
 }
 
@@ -325,7 +344,43 @@ async function handleDeleteColumn(columnName) {
   }
 }
 
+async function handleReorderColumns(newColumnsOrder) {
+  if (!currentDatasetId.value) return;
+  const previousColumns = [...columns.value];
+  columns.value = newColumnsOrder;
+  try {
+    await api.reorderColumns(currentDatasetId.value, newColumnsOrder);
+    showToast('Column order updated successfully', 'success');
+  } catch (err) {
+    columns.value = previousColumns;
+    showToast(`Failed to reorder columns: ${err.message}`, 'error');
+  }
+}
+
 function handlePrint() {
+  printOption.value = 'all'
+  printSelection.value = [...columns.value]
+  showPrintModal.value = true
+}
+
+function selectAllColumnsForPrint() {
+  printSelection.value = [...columns.value]
+}
+
+function clearAllColumnsForPrint() {
+  printSelection.value = []
+}
+
+async function confirmAndPrint() {
+  if (printOption.value === 'all') {
+    columnsToPrint.value = null
+  } else {
+    if (printSelection.value.length === 0) return
+    columnsToPrint.value = [...printSelection.value]
+  }
+  
+  showPrintModal.value = false
+  await nextTick()
   window.print()
 }
 
@@ -408,6 +463,7 @@ loadDatasets()
             :selected-row="selectedRow"
             :shortcuts="shortcuts"
             :current-language="currentLanguage"
+            :column-types="columnTypes"
             @update="handleUpdate"
             @delete="handleDelete"
             @deselect="handleDeselect"
@@ -431,14 +487,122 @@ loadDatasets()
             :rows="filteredRows"
             :selected-row="selectedRow"
             :is-loading="isLoading"
+            :columns-to-print="columnsToPrint"
+            :column-types="columnTypes"
             @select="handleRowSelect"
             @add-row="handleAddRow"
             @add-column="handleAddColumn"
             @rename-column="handleRenameColumn"
             @delete-column="handleDeleteColumn"
+            @reorder-columns="handleReorderColumns"
+            @open-directory="handleOpenDirectory"
           />
         </div>
       </main>
+    </div>
+
+    <!-- Print Configuration Modal (no-print) -->
+    <div v-if="showPrintModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-950/60 backdrop-blur-md no-print animate-fade-in">
+      <div class="glass-panel w-full max-w-xl flex flex-col max-h-[85vh] overflow-hidden shadow-2xl border border-surface-700/50">
+        <!-- Header -->
+        <div class="px-6 py-4 border-b border-surface-800/80 flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <svg class="w-5 h-5 text-accent-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            </svg>
+            <h3 class="text-base font-semibold text-white">Print Configuration</h3>
+          </div>
+          <button @click="showPrintModal = false" class="text-surface-400 hover:text-surface-200 transition-colors">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6 overflow-y-auto space-y-6">
+          <!-- Option Selection -->
+          <div class="grid grid-cols-2 gap-4">
+            <label 
+              @click="printOption = 'all'"
+              class="flex flex-col items-center justify-center p-4 rounded-xl border cursor-pointer transition-all duration-200"
+              :class="printOption === 'all' 
+                ? 'bg-accent-500/10 border-accent-500 text-white shadow-[0_0_15px_rgba(14,165,233,0.15)]' 
+                : 'bg-surface-900/40 border-surface-800 text-surface-400 hover:border-surface-700/60 hover:bg-surface-800/40'"
+            >
+              <svg class="w-7 h-7 mb-2 text-accent-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span class="text-sm font-semibold">Print Entire Sheet</span>
+              <span class="text-[11px] text-surface-500 mt-1">All {{ columns.length }} columns</span>
+            </label>
+
+            <label 
+              @click="printOption = 'custom'"
+              class="flex flex-col items-center justify-center p-4 rounded-xl border cursor-pointer transition-all duration-200"
+              :class="printOption === 'custom' 
+                ? 'bg-accent-500/10 border-accent-500 text-white shadow-[0_0_15px_rgba(14,165,233,0.15)]' 
+                : 'bg-surface-900/40 border-surface-800 text-surface-400 hover:border-surface-700/60 hover:bg-surface-800/40'"
+            >
+              <svg class="w-7 h-7 mb-2 text-accent-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+              <span class="text-sm font-semibold">Select Custom Columns</span>
+              <span class="text-[11px] text-surface-500 mt-1">Choose specific columns</span>
+            </label>
+          </div>
+
+          <!-- Custom Columns Selection List -->
+          <div v-if="printOption === 'custom'" class="space-y-3 animate-slide-down">
+            <div class="flex items-center justify-between px-1">
+              <span class="text-xs font-semibold text-surface-400">Columns ({{ printSelection.length }} selected)</span>
+              <div class="flex gap-2">
+                <button @click="selectAllColumnsForPrint" class="text-[10px] text-accent-400 hover:underline">Select All</button>
+                <span class="text-surface-700 text-[10px]">•</span>
+                <button @click="clearAllColumnsForPrint" class="text-[10px] text-accent-400 hover:underline">Clear All</button>
+              </div>
+            </div>
+            
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-surface-950/40 border border-surface-800/80 rounded-xl p-4 max-h-[220px] overflow-y-auto">
+              <label 
+                v-for="col in columns" 
+                :key="col"
+                class="flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-800 bg-surface-900/20 hover:bg-surface-800/40 cursor-pointer select-none transition-all duration-150"
+                :class="printSelection.includes(col) ? 'border-accent-500/30 bg-accent-500/5 text-surface-100' : 'text-surface-400'"
+              >
+                <input 
+                  type="checkbox" 
+                  :value="col" 
+                  v-model="printSelection"
+                  class="rounded border-surface-700 text-accent-600 focus:ring-accent-500 bg-surface-800 w-3.5 h-3.5"
+                />
+                <span class="text-xs truncate font-mono">{{ col }}</span>
+              </label>
+            </div>
+            <p v-if="printSelection.length === 0" class="text-xs text-danger-400 text-center italic mt-2">
+              ⚠️ Please select at least one column to print.
+            </p>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-6 py-4 bg-surface-950/30 border-t border-surface-800/80 flex items-center justify-end gap-3">
+          <button 
+            @click="showPrintModal = false" 
+            class="btn-ghost py-2 text-xs"
+          >
+            Cancel
+          </button>
+          <button 
+            @click="confirmAndPrint" 
+            class="btn-primary py-2 text-xs px-6"
+            :disabled="printOption === 'custom' && printSelection.length === 0"
+            :class="{ 'opacity-50 cursor-not-allowed': printOption === 'custom' && printSelection.length === 0 }"
+          >
+            Confirm & Print
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Toast Notifications -->

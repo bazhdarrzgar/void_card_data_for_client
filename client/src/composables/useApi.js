@@ -42,10 +42,10 @@ export function useApi() {
       body: JSON.stringify(rowData),
     });
 
-  const addColumn = (datasetId, columnName) =>
+  const addColumn = (datasetId, columnName, columnType) =>
     request(`/datasets/${datasetId}/columns`, {
       method: 'POST',
-      body: JSON.stringify({ columnName }),
+      body: JSON.stringify({ columnName, columnType }),
     });
 
   const renameColumn = (datasetId, oldName, newName) =>
@@ -57,6 +57,18 @@ export function useApi() {
   const deleteColumn = (datasetId, columnName) =>
     request(`/datasets/${datasetId}/columns/${encodeURIComponent(columnName)}`, {
       method: 'DELETE',
+    });
+
+  const reorderColumns = (datasetId, columns) =>
+    request(`/datasets/${datasetId}/columns/reorder`, {
+      method: 'PUT',
+      body: JSON.stringify({ columns }),
+    });
+
+  const openDirectory = (dirPath) =>
+    request(`/open-directory`, {
+      method: 'POST',
+      body: JSON.stringify({ dirPath }),
     });
 
   return {
@@ -71,6 +83,8 @@ export function useApi() {
     deleteRow,
     addColumn,
     renameColumn,
-    deleteColumn
+    deleteColumn,
+    reorderColumns,
+    openDirectory
   };
 }

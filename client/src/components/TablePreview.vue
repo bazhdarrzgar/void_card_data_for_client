@@ -6,11 +6,19 @@ const props = defineProps({
   rows: { type: Array, default: () => [] },
   selectedRow: { type: Object, default: null },
   isLoading: Boolean,
+  columnsToPrint: { type: Array, default: null },
+  columnTypes: { type: Object, default: () => ({}) },
 })
 
-const emit = defineEmits(['select', 'add-row', 'add-column', 'rename-column', 'delete-column'])
+const emit = defineEmits(['select', 'add-row', 'add-column', 'rename-column', 'delete-column', 'reorder-columns', 'open-directory'])
 
 const hasData = computed(() => props.columns.length > 0 && props.rows.length > 0)
+
+const activePrintColumns = computed(() => {
+  return props.columnsToPrint && props.columnsToPrint.length > 0
+    ? props.columnsToPrint
+    : props.columns
+})
 
 const chunkedRows = computed(() => {
   const chunks = []
@@ -30,10 +38,87 @@ const chunkedRows = computed(() => {
 
 const isAddingColumn = ref(false)
 const newColumnName = ref('')
+const newColumnType = ref('text')
+const newColumnOptions = ref('')
 const columnInputRef = ref(null)
 
 const editingColumn = ref(null)
 const renamingColValue = ref('')
+
+const lightboxUrl = ref(null)
+
+function previewImage(url) {
+  lightboxUrl.value = url
+}
+
+function getFolderName(path) {
+  if (!path) return ''
+  const parts = path.split(/[/\\]/)
+  return parts[parts.length - 1] || path
+}
+
+function triggerOpenDirectory(path) {
+  emit('open-directory', path)
+}
+
+// Drag & Drop State
+const draggedColumn = ref(null)
+const dragOverColumn = ref(null)
+
+function handleDragStart(event, col) {
+  if (editingColumn.value) {
+    event.preventDefault()
+    return
+  }
+  draggedColumn.value = col
+  event.dataTransfer.effectAllowed = 'move'
+  // Required for Firefox / Webkit drag-and-drop mechanics
+  event.dataTransfer.setData('text/plain', col)
+}
+
+function handleDragOver(event, col) {
+  if (draggedColumn.value && draggedColumn.value !== col) {
+    event.preventDefault()
+  }
+}
+
+function handleDragEnter(event, col) {
+  if (draggedColumn.value && draggedColumn.value !== col) {
+    dragOverColumn.value = col
+  }
+}
+
+function handleDragLeave(event, col) {
+  if (dragOverColumn.value === col) {
+    dragOverColumn.value = null
+  }
+}
+
+function handleDragEnd() {
+  draggedColumn.value = null
+  dragOverColumn.value = null
+}
+
+function handleDrop(event, targetCol) {
+  event.preventDefault()
+  if (!draggedColumn.value || draggedColumn.value === targetCol) return
+  
+  const fromIndex = props.columns.indexOf(draggedColumn.value)
+  const toIndex = props.columns.indexOf(targetCol)
+  
+  if (fromIndex !== -1 && toIndex !== -1) {
+    const updated = [...props.columns]
+    // Remove the column from its original position
+    updated.splice(fromIndex, 1)
+    // Insert the column at the target position
+    updated.splice(toIndex, 0, draggedColumn.value)
+    
+    emit('reorder-columns', updated)
+  }
+  
+  draggedColumn.value = null
+  dragOverColumn.value = null
+}
 
 function startAddingColumn() {
   isAddingColumn.value = true
@@ -49,8 +134,14 @@ function handleAddColumn() {
     isAddingColumn.value = false
     return
   }
-  emit('add-column', newColumnName.value.trim())
+  const type = newColumnType.value === 'select'
+    ? `select:${newColumnOptions.value.trim() || 'Option 1,Option 2'}`
+    : newColumnType.value
+
+  emit('add-column', { name: newColumnName.value.trim(), type })
   newColumnName.value = ''
+  newColumnType.value = 'text'
+  newColumnOptions.value = ''
   isAddingColumn.value = false
 }
 
@@ -131,10 +222,32 @@ function finishRename() {
         <thead>
           <tr>
             <th class="w-16 text-center no-print">#</th>
-            <th v-for="col in columns" :key="col" class="relative group group/th">
+            <th 
+              v-for="col in columns" 
+              :key="col" 
+              class="relative group group/th transition-all duration-150"
+              :class="{
+                'opacity-30 border-2 border-dashed border-surface-600': draggedColumn === col,
+                'bg-accent-600/30 border-l-4 border-l-accent-500': dragOverColumn === col
+              }"
+              draggable="true"
+              @dragstart="handleDragStart($event, col)"
+              @dragover="handleDragOver($event, col)"
+              @dragenter="handleDragEnter($event, col)"
+              @dragleave="handleDragLeave($event, col)"
+              @drop="handleDrop($event, col)"
+              @dragend="handleDragEnd"
+            >
               <div class="flex items-center justify-between gap-2">
-                <div v-if="editingColumn !== col" @dblclick="startRename(col)" class="flex-1 truncate cursor-text" title="Double click to rename">
-                  {{ col }}
+                <div v-if="editingColumn !== col" class="flex items-center gap-1.5 flex-1 min-w-0">
+                  <div class="cursor-grab active:cursor-grabbing text-surface-500 hover:text-surface-300 transition-colors py-1 flex items-center no-print" title="Drag to reorder column">
+                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M7 2a2 2 0 11.001 3.999A2 2 0 017 2zm0 6a2 2 0 11.001 3.999A2 2 0 017 8zm0 6a2 2 0 11.001 3.999A2 2 0 017 14zm6-12a2 2 0 11.001 3.999A2 2 0 0113 2zm0 6a2 2 0 11.001 3.999A2 2 0 0113 8zm0 6a2 2 0 11.001 3.999A2 2 0 0113 14z" />
+                    </svg>
+                  </div>
+                  <div @dblclick="startRename(col)" class="flex-1 truncate cursor-text" title="Double click to rename">
+                    {{ col }}
+                  </div>
                 </div>
                 <input 
                   v-else 
@@ -158,34 +271,56 @@ function finishRename() {
                 </button>
               </div>
             </th>
-            <th class="w-40 bg-surface-900/40 no-print">
-              <div v-if="!isAddingColumn" @click="startAddingColumn" class="cursor-pointer text-accent-400 hover:text-accent-300 flex items-center gap-1.5 transition-colors group">
+            <th class="w-56 bg-surface-900/40 no-print align-top pt-2.5">
+              <div v-if="!isAddingColumn" @click="startAddingColumn" class="cursor-pointer text-accent-400 hover:text-accent-300 flex items-center gap-1.5 transition-colors group px-3 py-1">
                 <div class="w-5 h-5 rounded-md bg-accent-500/10 flex items-center justify-center group-hover:bg-accent-500/20">
                   <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
                   </svg>
                 </div>
-                Add Column
+                <span class="text-xs font-semibold">Add Column</span>
               </div>
-              <div v-else class="flex items-center gap-1.5">
-                <input 
-                  ref="columnInputRef"
-                  v-model="newColumnName" 
-                  @keyup.enter="handleAddColumn" 
-                  @keyup.esc="isAddingColumn = false"
-                  class="bg-surface-800 text-surface-100 px-2 py-1 rounded text-xs w-24 border border-surface-600 focus:outline-none focus:border-accent-500 shadow-sm" 
-                  placeholder="Name" 
-                />
-                <button @click="handleAddColumn" class="w-6 h-6 flex items-center justify-center bg-success-500/20 text-success-400 hover:bg-success-500/30 rounded transition-colors">
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                </button>
-                <button @click="isAddingColumn = false" class="w-6 h-6 flex items-center justify-center bg-surface-700 text-surface-300 hover:bg-surface-600 rounded transition-colors">
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+              <div v-else class="flex flex-col gap-2 p-2 bg-surface-900 border border-surface-700/60 rounded-lg shadow-xl w-48 mx-auto text-left">
+                <div>
+                  <label class="text-[10px] text-surface-400 block mb-1 font-semibold">Column Name</label>
+                  <input 
+                    ref="columnInputRef"
+                    v-model="newColumnName" 
+                    @keyup.enter="handleAddColumn" 
+                    @keyup.esc="isAddingColumn = false"
+                    class="bg-surface-800 text-surface-100 px-2 py-1 rounded text-xs w-full border border-surface-600 focus:outline-none focus:border-accent-500 shadow-sm font-normal" 
+                    placeholder="Name" 
+                  />
+                </div>
+                <div>
+                  <label class="text-[10px] text-surface-400 block mb-1 font-semibold">Column Type</label>
+                  <select 
+                    v-model="newColumnType"
+                    class="bg-surface-800 text-surface-200 px-2 py-1.5 rounded text-xs w-full border border-surface-600 focus:outline-none focus:border-accent-500 shadow-sm cursor-pointer font-normal"
+                  >
+                    <option value="text">📝 Text</option>
+                    <option value="image">🖼️ Image</option>
+                    <option value="directory">📁 Directory Path</option>
+                    <option value="select">▼ Dropdown Select</option>
+                  </select>
+                </div>
+                <div v-if="newColumnType === 'select'">
+                  <label class="text-[10px] text-surface-400 block mb-1 font-semibold">Options (comma-separated)</label>
+                  <input 
+                    v-model="newColumnOptions"
+                    @keyup.enter="handleAddColumn"
+                    class="bg-surface-800 text-surface-100 px-2 py-1 rounded text-xs w-full border border-surface-600 focus:outline-none focus:border-accent-500 shadow-sm font-normal" 
+                    placeholder="e.g. Yes, No, Maybe" 
+                  />
+                </div>
+                <div class="flex items-center justify-end gap-1.5 mt-1">
+                  <button @click="isAddingColumn = false" class="px-2 py-1 text-[10px] bg-surface-800 text-surface-400 hover:text-surface-200 border border-surface-700 rounded transition-colors">
+                    Cancel
+                  </button>
+                  <button @click="handleAddColumn" class="px-2.5 py-1 text-[10px] bg-accent-600 hover:bg-accent-500 text-white rounded font-semibold transition-colors">
+                    Create
+                  </button>
+                </div>
               </div>
             </th>
           </tr>
@@ -204,8 +339,43 @@ function finishRename() {
             @click="$emit('select', row)"
           >
             <td class="text-center font-mono text-surface-500 text-xs no-print">{{ row._id }}</td>
-            <td v-for="col in columns" :key="col" :title="row[col]">
-              {{ row[col] }}
+            <td v-for="col in columns" :key="col" class="max-w-[200px] overflow-hidden">
+              <!-- Image Preview -->
+              <template v-if="columnTypes[col] === 'image'">
+                <div class="flex items-center justify-center py-0.5">
+                  <img 
+                    v-if="row[col]" 
+                    :src="row[col]" 
+                    class="w-10 h-10 object-cover rounded border border-surface-700/50 hover:scale-[2.5] hover:z-20 transition-all duration-200 cursor-zoom-in" 
+                    @click.stop="previewImage(row[col])" 
+                  />
+                  <span v-else class="text-[10px] text-surface-600 italic">No Image</span>
+                </div>
+              </template>
+              
+              <!-- Directory Link -->
+              <template v-else-if="columnTypes[col] === 'directory'">
+                <div v-if="row[col]" class="flex items-center gap-1.5 justify-center sm:justify-start">
+                  <button 
+                    @click.stop="triggerOpenDirectory(row[col])" 
+                    class="text-xs text-accent-400 hover:text-accent-300 underline font-mono flex items-center gap-1 max-w-[170px] truncate"
+                    title="Click to open this folder in your file manager"
+                  >
+                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <span class="truncate">{{ getFolderName(row[col]) }}</span>
+                  </button>
+                </div>
+                <span v-else class="text-xs text-surface-600 italic">-</span>
+              </template>
+              
+              <!-- Text (default) -->
+              <template v-else>
+                <div class="truncate" :title="row[col]">
+                  {{ row[col] }}
+                </div>
+              </template>
             </td>
             <td class="no-print"></td>
           </tr>
@@ -223,15 +393,24 @@ function finishRename() {
         <table class="data-table">
           <thead v-if="pageIdx === 0">
             <tr>
-              <th v-for="col in columns" :key="col">
+              <th v-for="col in activePrintColumns" :key="col">
                 {{ col }}
               </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="row in chunk" :key="row._id">
-              <td v-for="col in columns" :key="col">
-                {{ row[col] }}
+              <td v-for="col in activePrintColumns" :key="col">
+                <template v-if="columnTypes[col] === 'image'">
+                  <img v-if="row[col]" :src="row[col]" class="w-12 h-12 object-cover rounded border border-surface-400 mx-auto" />
+                  <span v-else class="text-xs text-gray-500 italic">No Image</span>
+                </template>
+                <template v-else-if="columnTypes[col] === 'directory'">
+                  <span class="font-mono text-xs break-all">{{ row[col] || '-' }}</span>
+                </template>
+                <template v-else>
+                  {{ row[col] }}
+                </template>
               </td>
             </tr>
           </tbody>
@@ -240,6 +419,11 @@ function finishRename() {
           {{ pageIdx + 1 }} - {{ chunkedRows.length }}
         </div>
       </div>
+    </div>
+
+    <!-- Image Lightbox Modal (no-print) -->
+    <div v-if="lightboxUrl" @click="lightboxUrl = null" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-950/80 backdrop-blur-sm no-print cursor-zoom-out animate-fade-in">
+      <img :src="lightboxUrl" class="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl border border-surface-700/30" />
     </div>
   </div>
 </template>

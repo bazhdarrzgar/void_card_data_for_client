@@ -56,22 +56,45 @@ voide_form/
 
 ## ⚡ How to Run
 
-You can run both servers simultaneously using the provided automated runner script.
+### 📦 Installation (Prerequisites & Dependencies)
 
-### Prerequisites
-Make sure you have [Node.js](https://nodejs.org/) installed (v18+ recommended).
+Before running the project, you need to check the prerequisites and install all dependencies. 
+
+#### On Linux/macOS:
+1. Make the installation script executable:
+   ```bash
+   chmod +x install.sh
+   ```
+2. Run the installation script:
+   ```bash
+   ./install.sh
+   ```
+
+#### On Windows:
+Double-click `install.bat` or run it via Command Prompt:
+```cmd
+install.bat
+```
+
+This will automatically:
+* Verify if Node.js (v18+) and npm are installed.
+* Check if C++ compiler build tools are present (needed in case native SQLite bindings need compilation).
+* Run `npm install` inside both the `server/` and `client/` directories.
+
+---
 
 ### Dev Mode Execution
 
-1. Make the runner script executable (only needed once):
-   ```bash
-   chmod +x run_dev.sh
-   ```
-
-2. Start development mode:
-   ```bash
-   ./run_dev.sh
-   ```
+1. Start development mode:
+   - **Linux/macOS:**
+     ```bash
+     chmod +x run_dev.sh
+     ./run_dev.sh
+     ```
+   - **Windows:**
+     ```cmd
+     run_dev.bat
+     ```
 
 The script will:
 * Check for and install missing `node_modules` dependencies in both folders automatically.

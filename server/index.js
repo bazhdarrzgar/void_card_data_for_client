@@ -12,7 +12,8 @@ const {
   addColumn,
   renameColumn,
   deleteColumn,
-  deleteDataset
+  deleteDataset,
+  updateColumnsOrder
 } = require('./database');
 
 const app = express();
@@ -122,10 +123,10 @@ app.delete('/api/datasets/:datasetId/rows/:id', (req, res) => {
 // ─── Dataset Columns ─────────────────────────────────────────
 app.post('/api/datasets/:datasetId/columns', (req, res) => {
   try {
-    const { columnName } = req.body;
+    const { columnName, columnType } = req.body;
     if (!columnName) return res.status(400).json({ success: false, error: 'columnName required' });
-    const cols = addColumn(Number(req.params.datasetId), columnName);
-    res.json({ success: true, data: cols });
+    const result = addColumn(Number(req.params.datasetId), columnName, columnType || 'text');
+    res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -135,8 +136,8 @@ app.put('/api/datasets/:datasetId/columns', (req, res) => {
   try {
     const { oldName, newName } = req.body;
     if (!oldName || !newName) return res.status(400).json({ success: false, error: 'oldName and newName required' });
-    const cols = renameColumn(Number(req.params.datasetId), oldName, newName);
-    res.json({ success: true, data: cols });
+    const result = renameColumn(Number(req.params.datasetId), oldName, newName);
+    res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -144,8 +145,50 @@ app.put('/api/datasets/:datasetId/columns', (req, res) => {
 
 app.delete('/api/datasets/:datasetId/columns/:columnName', (req, res) => {
   try {
-    const cols = deleteColumn(Number(req.params.datasetId), req.params.columnName);
+    const result = deleteColumn(Number(req.params.datasetId), req.params.columnName);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/datasets/:datasetId/columns/reorder', (req, res) => {
+  try {
+    const { columns } = req.body;
+    if (!columns || !Array.isArray(columns)) {
+      return res.status(400).json({ success: false, error: 'columns array is required' });
+    }
+    const cols = updateColumnsOrder(Number(req.params.datasetId), columns);
     res.json({ success: true, data: cols });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/open-directory', (req, res) => {
+  try {
+    const { dirPath } = req.body;
+    if (!dirPath) {
+      return res.status(400).json({ success: false, error: 'dirPath is required' });
+    }
+    
+    const { spawn } = require('child_process');
+    let cmd = '';
+    let args = [dirPath];
+    
+    if (process.platform === 'win32') {
+      cmd = 'explorer.exe';
+      args = [dirPath.replace(/\//g, '\\')];
+    } else if (process.platform === 'darwin') {
+      cmd = 'open';
+    } else {
+      cmd = 'xdg-open';
+    }
+    
+    const proc = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+    proc.unref();
+    
+    res.json({ success: true, message: 'Open directory command dispatched' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

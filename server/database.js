@@ -21,6 +21,13 @@ function getDb() {
         updated_at TEXT DEFAULT (datetime('now'))
       )
     `);
+
+    // Migration: Add column_types to _meta if it doesn't exist
+    try {
+      db.exec(`ALTER TABLE _meta ADD COLUMN column_types TEXT NOT NULL DEFAULT '{}'`);
+    } catch (e) {
+      // Column already exists, ignore error
+    }
   }
   return db;
 }
@@ -86,28 +93,36 @@ function importDataset(displayName, columns, rows) {
 
   // Insert meta
   const insertMeta = db.prepare(`
-    INSERT INTO _meta (table_name, display_name, columns, updated_at)
-    VALUES (?, ?, ?, datetime('now'))
+    INSERT INTO _meta (table_name, display_name, columns, column_types, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
   `);
-  const result = insertMeta.run(tableName, displayName, JSON.stringify(uniqueCols));
+  const result = insertMeta.run(tableName, displayName, JSON.stringify(uniqueCols), '{}');
 
   return { id: result.lastInsertRowid, tableName, columns: uniqueCols, rowCount: rows ? rows.length : 0 };
 }
 
-/**
- * Get all datasets meta info
- */
 function getAllMeta() {
   const db = getDb();
   const metas = db.prepare('SELECT * FROM _meta ORDER BY updated_at DESC').all();
-  return metas.map(m => ({
-    id: m.id,
-    tableName: m.table_name,
-    displayName: m.display_name,
-    columns: JSON.parse(m.columns),
-    createdAt: m.created_at,
-    updatedAt: m.updated_at
-  }));
+  return metas.map(m => {
+    let columnTypes = {};
+    if (m.column_types) {
+      try {
+        columnTypes = JSON.parse(m.column_types);
+      } catch (e) {
+        columnTypes = {};
+      }
+    }
+    return {
+      id: m.id,
+      tableName: m.table_name,
+      displayName: m.display_name,
+      columns: JSON.parse(m.columns),
+      columnTypes,
+      createdAt: m.created_at,
+      updatedAt: m.updated_at
+    };
+  });
 }
 
 /**
@@ -117,11 +132,20 @@ function getMeta(id) {
   const db = getDb();
   const meta = db.prepare('SELECT * FROM _meta WHERE id = ?').get(id);
   if (!meta) return null;
+  let columnTypes = {};
+  if (meta.column_types) {
+    try {
+      columnTypes = JSON.parse(meta.column_types);
+    } catch (e) {
+      columnTypes = {};
+    }
+  }
   return {
     id: meta.id,
     tableName: meta.table_name,
     displayName: meta.display_name,
     columns: JSON.parse(meta.columns),
+    columnTypes,
     createdAt: meta.created_at,
     updatedAt: meta.updated_at
   };
@@ -133,7 +157,7 @@ function getAllRows(datasetId) {
   if (!meta) throw new Error('Dataset not found');
 
   const rows = db.prepare(`SELECT * FROM "${meta.tableName}" ORDER BY _id ASC`).all();
-  return { columns: meta.columns, rows };
+  return { columns: meta.columns, columnTypes: meta.columnTypes, rows };
 }
 
 function getRowById(datasetId, rowId) {
@@ -178,7 +202,7 @@ function deleteRow(datasetId, rowId) {
 /**
  * Add a new column to a dataset
  */
-function addColumn(datasetId, columnName) {
+function addColumn(datasetId, columnName, columnType = 'text') {
   const db = getDb();
   const meta = getMeta(datasetId);
   if (!meta) throw new Error('Dataset not found');
@@ -192,10 +216,13 @@ function addColumn(datasetId, columnName) {
   db.exec(`ALTER TABLE "${meta.tableName}" ADD COLUMN "${safeColName}" TEXT`);
   
   meta.columns.push(safeColName);
-  db.prepare(`UPDATE _meta SET columns = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(JSON.stringify(meta.columns), datasetId);
+  const types = meta.columnTypes || {};
+  types[safeColName] = columnType;
 
-  return meta.columns;
+  db.prepare(`UPDATE _meta SET columns = ?, column_types = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(JSON.stringify(meta.columns), JSON.stringify(types), datasetId);
+
+  return { columns: meta.columns, columnTypes: types };
 }
 
 /**
@@ -218,10 +245,16 @@ function renameColumn(datasetId, oldName, newName) {
   db.exec(`ALTER TABLE "${meta.tableName}" RENAME COLUMN "${oldName}" TO "${safeNewName}"`);
 
   const updatedColumns = meta.columns.map(c => c === oldName ? safeNewName : c);
-  db.prepare(`UPDATE _meta SET columns = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(JSON.stringify(updatedColumns), datasetId);
+  const types = meta.columnTypes || {};
+  if (types[oldName]) {
+    types[safeNewName] = types[oldName];
+    delete types[oldName];
+  }
 
-  return updatedColumns;
+  db.prepare(`UPDATE _meta SET columns = ?, column_types = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(JSON.stringify(updatedColumns), JSON.stringify(types), datasetId);
+
+  return { columns: updatedColumns, columnTypes: types };
 }
 
 /**
@@ -240,10 +273,13 @@ function deleteColumn(datasetId, columnName) {
   db.exec(`ALTER TABLE "${meta.tableName}" DROP COLUMN "${columnName}"`);
 
   const updatedColumns = meta.columns.filter(c => c !== columnName);
-  db.prepare(`UPDATE _meta SET columns = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(JSON.stringify(updatedColumns), datasetId);
+  const types = meta.columnTypes || {};
+  delete types[columnName];
 
-  return updatedColumns;
+  db.prepare(`UPDATE _meta SET columns = ?, column_types = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(JSON.stringify(updatedColumns), JSON.stringify(types), datasetId);
+
+  return { columns: updatedColumns, columnTypes: types };
 }
 
 /**
@@ -257,6 +293,25 @@ function deleteDataset(datasetId) {
   db.exec(`DROP TABLE IF EXISTS "${meta.tableName}"`);
   db.prepare(`DELETE FROM _meta WHERE id = ?`).run(datasetId);
   return true;
+}
+
+/**
+ * Update the columns list (order) for a dataset
+ */
+function updateColumnsOrder(datasetId, columnsArray) {
+  const db = getDb();
+  const meta = getMeta(datasetId);
+  if (!meta) throw new Error('Dataset not found');
+
+  const existingCols = new Set(meta.columns);
+  if (columnsArray.length !== meta.columns.length || !columnsArray.every(c => existingCols.has(c))) {
+    throw new Error('Invalid columns provided for reordering');
+  }
+
+  db.prepare(`UPDATE _meta SET columns = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(JSON.stringify(columnsArray), datasetId);
+
+  return columnsArray;
 }
 
 /**
@@ -302,6 +357,7 @@ module.exports = {
   addColumn,
   renameColumn,
   deleteColumn,
-  deleteDataset
+  deleteDataset,
+  updateColumnsOrder
 };
 
