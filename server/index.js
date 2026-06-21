@@ -219,6 +219,23 @@ app.post('/api/backup/start', (req, res) => {
     // Ensure backups directory exists
     if (!fs.existsSync(backupsDir)) {
       fs.mkdirSync(backupsDir, { recursive: true });
+    } else {
+      // Clean up old/stale backup files older than 10 minutes
+      try {
+        const files = fs.readdirSync(backupsDir);
+        const now = Date.now();
+        for (const file of files) {
+          if (file.startsWith('backup_') && file.endsWith('.zip')) {
+            const filePath = path.join(backupsDir, file);
+            const stats = fs.statSync(filePath);
+            if (now - stats.mtimeMs > 10 * 60 * 1000) {
+              fs.unlinkSync(filePath);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to clean up stale backups:', e);
+      }
     }
 
     const zipPath = path.join(backupsDir, `backup_${taskId}.zip`);
@@ -233,7 +250,7 @@ app.post('/api/backup/start', (req, res) => {
 
     // Run the backup zipping process asynchronously
     const output = fs.createWriteStream(zipPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new archiver.ZipArchive({ zlib: { level: 9 } });
 
     output.on('close', () => {
       if (backupTasks[taskId]) {
@@ -274,7 +291,7 @@ app.post('/api/backup/start', (req, res) => {
 
     archive.finalize();
 
-    res.json({ success: true, taskId });
+    res.json({ success: true, data: { taskId } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -288,9 +305,11 @@ app.get('/api/backup/status/:taskId', (req, res) => {
   }
   res.json({
     success: true,
-    status: task.status,
-    progress: task.progress,
-    error: task.error
+    data: {
+      status: task.status,
+      progress: task.progress,
+      error: task.error
+    }
   });
 });
 
