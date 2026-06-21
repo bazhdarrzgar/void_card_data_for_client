@@ -212,15 +212,139 @@ app.post('/api/backup/start', (req, res) => {
       return res.status(404).json({ success: false, error: 'Database file not found' });
     }
 
-    const totalSize = fs.statSync(dbPath).size;
+    // 1. Scan metadata and files to pack
+    const datasets = db.prepare('SELECT * FROM _meta').all();
+    const itemsToPack = []; // array of { type: 'file'|'buffer', source, zipPath, size }
+    
+    // Add data.db
+    const dbSize = fs.statSync(dbPath).size;
+    itemsToPack.push({
+      type: 'file',
+      source: dbPath,
+      zipPath: 'data.db',
+      size: dbSize
+    });
+
+    // Helper to sanitize name for filenames
+    const sanitizeFilename = (name) => name.replace(/[^a-zA-Z0-9_\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/g, '_');
+
+    for (const meta of datasets) {
+      const tableName = meta.table_name;
+      const displayName = sanitizeFilename(meta.display_name || tableName);
+      let columnTypes = {};
+      try {
+        columnTypes = JSON.parse(meta.column_types || '{}');
+      } catch (e) {
+        continue;
+      }
+
+      // Check if there are columns of interest
+      const colEntries = Object.entries(columnTypes);
+      const imageCols = colEntries.filter(([_, type]) => type === 'image').map(([name]) => name);
+      const dirCols = colEntries.filter(([_, type]) => type === 'directory').map(([name]) => name);
+
+      if (imageCols.length === 0 && dirCols.length === 0) {
+        continue;
+      }
+
+      // Query rows for this table
+      let rows = [];
+      try {
+        rows = db.prepare(`SELECT * FROM "${tableName}"`).all();
+      } catch (e) {
+        console.error(`Failed to query table ${tableName}:`, e.message);
+        continue;
+      }
+
+      for (const row of rows) {
+        const rowId = row._id || row.id || Date.now();
+
+        // 1. Process image columns
+        for (const col of imageCols) {
+          const val = row[col];
+          if (val && typeof val === 'string' && val.startsWith('data:image/')) {
+            const matches = val.match(/^data:image\/([a-zA-Z+]+);base64,(.+)$/);
+            if (matches) {
+              const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+              const base64Data = matches[2];
+              const buffer = Buffer.from(base64Data, 'base64');
+              itemsToPack.push({
+                type: 'buffer',
+                source: buffer,
+                zipPath: `uploaded_images/${displayName}/row_${rowId}_${sanitizeFilename(col)}.${ext}`,
+                size: buffer.length
+              });
+            }
+          }
+        }
+
+        // 2. Process directory columns
+        for (const col of dirCols) {
+          const val = row[col];
+          if (val && typeof val === 'string') {
+            const resolvedPath = path.resolve(val);
+            if (fs.existsSync(resolvedPath)) {
+              try {
+                const stat = fs.statSync(resolvedPath);
+                if (stat.isDirectory()) {
+                  // Recursively scan files
+                  const filesList = [];
+                  const scanDir = (dir, prefix) => {
+                    const dirItems = fs.readdirSync(dir);
+                    for (const item of dirItems) {
+                      const fPath = path.join(dir, item);
+                      const zPath = path.join(prefix, item);
+                      const s = fs.statSync(fPath);
+                      if (s.isDirectory()) {
+                        scanDir(fPath, zPath);
+                      } else if (s.isFile()) {
+                        filesList.push({
+                          localPath: fPath,
+                          zipPath: zPath,
+                          size: s.size
+                        });
+                      }
+                    }
+                  };
+                  
+                  const zipPrefix = `mentioned_directories/${displayName}/row_${rowId}_${sanitizeFilename(col)}`;
+                  scanDir(resolvedPath, zipPrefix);
+                  
+                  for (const f of filesList) {
+                    itemsToPack.push({
+                      type: 'file',
+                      source: f.localPath,
+                      zipPath: f.zipPath,
+                      size: f.size
+                    });
+                  }
+                } else if (stat.isFile()) {
+                  itemsToPack.push({
+                    type: 'file',
+                    source: resolvedPath,
+                    zipPath: `mentioned_directories/${displayName}/row_${rowId}_${sanitizeFilename(col)}_${path.basename(resolvedPath)}`,
+                    size: stat.size
+                  });
+                }
+              } catch (e) {
+                console.error(`Failed to pack path ${resolvedPath}:`, e.message);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Sum up total size
+    const totalSize = itemsToPack.reduce((acc, item) => acc + item.size, 0);
+
     const taskId = String(Date.now());
     const backupsDir = path.join(__dirname, 'backups');
     
-    // Ensure backups directory exists
+    // Ensure backups directory exists and clean stale backups
     if (!fs.existsSync(backupsDir)) {
       fs.mkdirSync(backupsDir, { recursive: true });
     } else {
-      // Clean up old/stale backup files older than 10 minutes
       try {
         const files = fs.readdirSync(backupsDir);
         const now = Date.now();
@@ -269,14 +393,24 @@ app.post('/api/backup/start', (req, res) => {
 
     archive.pipe(output);
 
-    // Append database file
-    archive.file(dbPath, { name: 'data.db' });
+    // Add all compiled items to the zip
+    for (const item of itemsToPack) {
+      if (item.type === 'file') {
+        archive.file(item.source, { name: item.zipPath });
+      } else if (item.type === 'buffer') {
+        archive.append(item.source, { name: item.zipPath });
+      }
+    }
 
     // Append a backup metadata info file
     const metaInfo = JSON.stringify({
       backupDate: new Date().toISOString(),
       app: 'Voide Form',
-      description: 'Contains database table structure, rows, base64 images, and folder paths.'
+      description: 'Contains database, structured uploaded images, and recursively backed up directory columns.',
+      statistics: {
+        totalFilesPacked: itemsToPack.length,
+        totalSizeRawBytes: totalSize
+      }
     }, null, 2);
     archive.append(metaInfo, { name: 'backup_metadata.json' });
 
