@@ -35,6 +35,10 @@ const sendTargetDatasetId = ref(null)
 const sendOperation = ref('copy')
 const isSending = ref(false)
 
+const showExportModal = ref(false)
+const exportOption = ref('all') // 'all' or 'custom'
+const exportSelection = ref([])
+
 const columns = ref([])
 const columnTypes = ref({})
 const rows = ref([])
@@ -220,23 +224,50 @@ async function handleDeleteDataset(id) {
 
 // ─── Export Handler ──────────────────────────────────────
 function handleExport() {
+  if (rows.value.length === 0) {
+    showToast('No data to export', 'error')
+    return
+  }
+  exportOption.value = 'all'
+  exportSelection.value = [...columns.value]
+  showExportModal.value = true
+}
+
+function selectAllColumnsForExport() {
+  exportSelection.value = [...columns.value]
+}
+
+function clearAllColumnsForExport() {
+  exportSelection.value = []
+}
+
+async function confirmAndExport() {
   try {
+    let colsToExport = []
+    if (exportOption.value === 'all') {
+      colsToExport = [...columns.value]
+    } else {
+      if (exportSelection.value.length === 0) {
+        showToast('Please select at least one column to export', 'error')
+        return
+      }
+      colsToExport = [...exportSelection.value]
+    }
+
     const exportData = filteredRows.value.map(row => {
-      const clean = { ...row }
-      delete clean._id
+      const clean = {}
+      for (const col of colsToExport) {
+        clean[col] = row[col] !== undefined ? row[col] : ''
+      }
       return clean
     })
-
-    if (exportData.length === 0) {
-      showToast('No data to export', 'error')
-      return
-    }
 
     const ws = XLSX.utils.json_to_sheet(exportData)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Dataset')
     XLSX.writeFile(wb, `voide_export_${Date.now()}.xlsx`)
-    showToast(`Exported ${exportData.length} rows`, 'success')
+    showToast(`Exported ${exportData.length} rows successfully`, 'success')
+    showExportModal.value = false
   } catch (err) {
     showToast(`Export failed: ${err.message}`, 'error')
   }
@@ -708,6 +739,105 @@ loadDatasets()
       </div>
     </div>
 
+    <!-- Export Configuration Modal (no-print) -->
+    <div v-if="showExportModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-950/60 backdrop-blur-md no-print animate-fade-in">
+      <div class="glass-panel w-full max-w-xl flex flex-col max-h-[85vh] overflow-hidden shadow-2xl border border-surface-700/50">
+        <!-- Header -->
+        <div class="px-6 py-4 border-b border-surface-800/80 flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <svg class="w-5 h-5 text-accent-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h3 class="text-base font-semibold text-white">Export Configuration</h3>
+          </div>
+          <button @click="showExportModal = false" class="text-surface-400 hover:text-surface-200 transition-colors">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6 overflow-y-auto space-y-6">
+          <!-- Option Selection -->
+          <div class="grid grid-cols-2 gap-4">
+            <label 
+              @click="exportOption = 'all'"
+              :class="exportOption === 'all' ? 'border-accent-500 bg-accent-500/10 text-accent-400' : 'border-surface-800 bg-surface-900/30 text-surface-400'"
+              class="flex flex-col items-center justify-center p-5 rounded-xl border cursor-pointer hover:bg-surface-800/20 transition-all duration-350 group"
+            >
+              <svg class="w-8 h-8 mb-2 group-hover:scale-110 transition-transform text-accent-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+              </svg>
+              <span class="text-sm font-semibold">Export Entire Sheet</span>
+              <span class="text-[10px] opacity-60 mt-1 text-center">Export all rows and all columns to Excel</span>
+            </label>
+
+            <label 
+              @click="exportOption = 'custom'"
+              :class="exportOption === 'custom' ? 'border-accent-500 bg-accent-500/10 text-accent-400' : 'border-surface-800 bg-surface-900/30 text-surface-400'"
+              class="flex flex-col items-center justify-center p-5 rounded-xl border cursor-pointer hover:bg-surface-800/20 transition-all duration-350 group"
+            >
+              <svg class="w-8 h-8 mb-2 group-hover:scale-110 transition-transform text-accent-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+              </svg>
+              <span class="text-sm font-semibold">Selected Columns Only</span>
+              <span class="text-[10px] opacity-60 mt-1 text-center">Choose specific columns you want to include</span>
+            </label>
+          </div>
+
+          <!-- Column Selection list -->
+          <div v-if="exportOption === 'custom'" class="space-y-3 animate-slide-down">
+            <div class="flex items-center justify-between border-b border-surface-800/80 pb-2">
+              <span class="text-xs font-semibold text-surface-300">Select Columns to Include:</span>
+              <div class="flex gap-2">
+                <button @click="selectAllColumnsForExport" class="text-[10px] text-accent-400 hover:underline">Select All</button>
+                <span class="text-surface-700 text-xs">|</span>
+                <button @click="clearAllColumnsForExport" class="text-[10px] text-accent-400 hover:underline">Clear All</button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[25vh] overflow-y-auto pr-1">
+              <label 
+                v-for="col in columns" 
+                :key="col"
+                class="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-800/40 border border-surface-750/30 cursor-pointer hover:bg-surface-700/30 transition-colors"
+              >
+                <input 
+                  type="checkbox" 
+                  :value="col" 
+                  v-model="exportSelection"
+                  class="rounded border-surface-600 bg-surface-900 text-accent-500 focus:ring-accent-500 focus:ring-offset-surface-900"
+                />
+                <span class="text-xs text-surface-200 truncate">{{ col }}</span>
+              </label>
+            </div>
+            <p v-if="exportSelection.length === 0" class="text-xs text-danger-400 text-center italic mt-2">
+              ⚠️ Please select at least one column to export.
+            </p>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-6 py-4 bg-surface-950/30 border-t border-surface-800/80 flex items-center justify-end gap-3">
+          <button 
+            @click="showExportModal = false" 
+            class="btn-ghost py-2 text-xs"
+          >
+            Cancel
+          </button>
+          <button 
+            @click="confirmAndExport" 
+            class="btn-primary py-2 text-xs px-6"
+            :disabled="exportOption === 'custom' && exportSelection.length === 0"
+            :class="{ 'opacity-50 cursor-not-allowed': exportOption === 'custom' && exportSelection.length === 0 }"
+          >
+            Confirm & Export
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Backup Progress Modal (no-print) -->
     <div v-if="showBackupModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-950/70 backdrop-blur-sm no-print animate-fade-in">
       <div class="glass-panel w-full max-w-sm p-6 flex flex-col items-center text-center shadow-2xl border border-surface-700/50">
@@ -750,6 +880,7 @@ loadDatasets()
             Close
           </button>
         </div>
+      </div>
     </div>
 
     <!-- Send Row (Transfer) Modal (no-print) -->

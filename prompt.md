@@ -68,4 +68,4 @@ please add button send data by moving or copy from one excel to another excel in
 i wanna show me copy or move and send to what excel or what table in the database 
 
 add one things for me for export the excell i wanna take me two choice when i click to export the excell i wanna tell
-me export entier 
+me export entire excell or just this columns i selected
