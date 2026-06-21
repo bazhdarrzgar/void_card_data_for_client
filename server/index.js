@@ -137,12 +137,35 @@ app.post('/api/datasets/transfer-row', (req, res) => {
       return res.status(400).json({ success: false, error: 'Cannot move a row to the same dataset' });
     }
 
+    const sourceMeta = getMeta(Number(sourceDatasetId));
+    const targetMeta = getMeta(Number(targetDatasetId));
+    if (!sourceMeta || !targetMeta) {
+      return res.status(404).json({ success: false, error: 'Dataset metadata not found' });
+    }
+
     const sourceRow = getRowById(Number(sourceDatasetId), Number(rowId));
     if (!sourceRow) {
       return res.status(404).json({ success: false, error: 'Source row not found' });
     }
 
-    const newRow = addRow(Number(targetDatasetId), sourceRow);
+    // Map source row values to target row columns
+    const mappedRow = {};
+    targetMeta.columns.forEach((targetCol, index) => {
+      // 1. Try exact column name match
+      if (sourceRow[targetCol] !== undefined) {
+        mappedRow[targetCol] = sourceRow[targetCol];
+      } else {
+        // 2. Fall back to positional column index match
+        const sourceCol = sourceMeta.columns[index];
+        if (sourceCol !== undefined && sourceRow[sourceCol] !== undefined) {
+          mappedRow[targetCol] = sourceRow[sourceCol];
+        } else {
+          mappedRow[targetCol] = '';
+        }
+      }
+    });
+
+    const newRow = addRow(Number(targetDatasetId), mappedRow);
 
     if (operation === 'move') {
       deleteRow(Number(sourceDatasetId), Number(rowId));
