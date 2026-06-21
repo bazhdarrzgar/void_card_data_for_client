@@ -60,3 +60,6 @@ for page number i wanna like this 1 - end page number
 please create upload_github.sh file to upload project easly to github and just ask me to commit name only
 
 also create .bat file to run this project in dev mod
+
+
+i wanna backup is advance i wanna backup images that i upload it to columns images and also backup this directory that i mension in the columns ....
