@@ -71,6 +71,18 @@ export function useApi() {
       body: JSON.stringify({ dirPath }),
     });
 
+  const startBackup = () =>
+    request('/backup/start', {
+      method: 'POST'
+    });
+
+  const getBackupStatus = (taskId) =>
+    request(`/backup/status/${taskId}`, {
+      method: 'GET'
+    });
+
+  const getBackupDownloadUrl = (taskId) => `${API_BASE}/backup/download/${taskId}`;
+
   return {
     getDatasets,
     getDatasetMeta,
@@ -85,6 +97,9 @@ export function useApi() {
     renameColumn,
     deleteColumn,
     reorderColumns,
-    openDirectory
+    openDirectory,
+    startBackup,
+    getBackupStatus,
+    getBackupDownloadUrl
   };
 }

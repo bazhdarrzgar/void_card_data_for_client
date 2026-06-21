@@ -1,6 +1,10 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+const archiver = require('archiver');
 const {
+  getDb,
   importDataset,
   getAllMeta,
   getMeta,
@@ -15,6 +19,8 @@ const {
   deleteDataset,
   updateColumnsOrder
 } = require('./database');
+
+const backupTasks = {};
 
 const app = express();
 const PORT = 3001;
@@ -194,9 +200,128 @@ app.post('/api/open-directory', (req, res) => {
   }
 });
 
+// ─── Database Backup and Progress ─────────────────────────────
+app.post('/api/backup/start', (req, res) => {
+  try {
+    const db = getDb();
+    // Flush WAL changes to main data.db file
+    db.pragma('wal_checkpoint(TRUNCATE)');
+
+    const dbPath = path.join(__dirname, 'data.db');
+    if (!fs.existsSync(dbPath)) {
+      return res.status(404).json({ success: false, error: 'Database file not found' });
+    }
+
+    const totalSize = fs.statSync(dbPath).size;
+    const taskId = String(Date.now());
+    const backupsDir = path.join(__dirname, 'backups');
+    
+    // Ensure backups directory exists
+    if (!fs.existsSync(backupsDir)) {
+      fs.mkdirSync(backupsDir, { recursive: true });
+    }
+
+    const zipPath = path.join(backupsDir, `backup_${taskId}.zip`);
+    
+    // Initialize task state
+    backupTasks[taskId] = {
+      progress: 0,
+      status: 'running',
+      error: null,
+      zipPath
+    };
+
+    // Run the backup zipping process asynchronously
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    output.on('close', () => {
+      if (backupTasks[taskId]) {
+        backupTasks[taskId].progress = 100;
+        backupTasks[taskId].status = 'done';
+      }
+    });
+
+    archive.on('error', (err) => {
+      console.error('Archive error:', err);
+      if (backupTasks[taskId]) {
+        backupTasks[taskId].status = 'failed';
+        backupTasks[taskId].error = err.message;
+      }
+    });
+
+    archive.pipe(output);
+
+    // Append database file
+    archive.file(dbPath, { name: 'data.db' });
+
+    // Append a backup metadata info file
+    const metaInfo = JSON.stringify({
+      backupDate: new Date().toISOString(),
+      app: 'Voide Form',
+      description: 'Contains database table structure, rows, base64 images, and folder paths.'
+    }, null, 2);
+    archive.append(metaInfo, { name: 'backup_metadata.json' });
+
+    // Track progress
+    archive.on('progress', (progressData) => {
+      if (backupTasks[taskId]) {
+        const processed = progressData.fs.processedBytes || 0;
+        const pct = Math.min(Math.round((processed / totalSize) * 100), 99);
+        backupTasks[taskId].progress = pct;
+      }
+    });
+
+    archive.finalize();
+
+    res.json({ success: true, taskId });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/backup/status/:taskId', (req, res) => {
+  const { taskId } = req.params;
+  const task = backupTasks[taskId];
+  if (!task) {
+    return res.status(404).json({ success: false, error: 'Backup task not found' });
+  }
+  res.json({
+    success: true,
+    status: task.status,
+    progress: task.progress,
+    error: task.error
+  });
+});
+
+app.get('/api/backup/download/:taskId', (req, res) => {
+  const { taskId } = req.params;
+  const task = backupTasks[taskId];
+  if (!task) {
+    return res.status(404).json({ success: false, error: 'Backup task not found' });
+  }
+
+  if (task.status !== 'done') {
+    return res.status(400).json({ success: false, error: 'Backup is not ready yet' });
+  }
+
+  const zipPath = task.zipPath;
+  if (!fs.existsSync(zipPath)) {
+    return res.status(404).json({ success: false, error: 'Backup file not found' });
+  }
+
+  const downloadName = `voide_backup_${taskId}.zip`;
+  res.download(zipPath, downloadName, (err) => {
+    try {
+      fs.unlinkSync(zipPath);
+    } catch (e) {
+      console.error('Failed to delete temp backup file:', e);
+    }
+    delete backupTasks[taskId];
+  });
+});
+
 // ─── Serve Static Frontend Assets (Production Build) ──────────
-const path = require('path');
-const fs = require('fs');
 const distPath = path.join(__dirname, '../client/dist');
 
 if (fs.existsSync(distPath)) {

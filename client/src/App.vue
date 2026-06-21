@@ -22,6 +22,11 @@ const printOption = ref('all') // 'all' or 'custom'
 const printSelection = ref([])
 const columnsToPrint = ref(null)
 
+const showBackupModal = ref(false)
+const backupProgress = ref(0)
+const backupStatus = ref('') // 'running' | 'done' | 'failed'
+const backupError = ref('')
+
 const columns = ref([])
 const columnTypes = ref({})
 const rows = ref([])
@@ -384,6 +389,57 @@ async function confirmAndPrint() {
   window.print()
 }
 
+async function handleBackup() {
+  let pollInterval = null;
+  try {
+    showBackupModal.value = true;
+    backupProgress.value = 0;
+    backupStatus.value = 'running';
+    backupError.value = '';
+
+    const { taskId } = await api.startBackup();
+
+    pollInterval = setInterval(async () => {
+      try {
+        const statusData = await api.getBackupStatus(taskId);
+        backupProgress.value = statusData.progress;
+        backupStatus.value = statusData.status;
+        backupError.value = statusData.error || '';
+
+        if (statusData.status === 'done') {
+          clearInterval(pollInterval);
+          const downloadUrl = api.getBackupDownloadUrl(taskId);
+          const link = document.createElement('a');
+          link.href = downloadUrl;
+          link.download = `voide_backup_${taskId}.zip`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+
+          setTimeout(() => {
+            showBackupModal.value = false;
+            showToast('Backup downloaded successfully', 'success');
+          }, 1000);
+        } else if (statusData.status === 'failed') {
+          clearInterval(pollInterval);
+          showToast(`Backup failed: ${statusData.error}`, 'error');
+        }
+      } catch (err) {
+        clearInterval(pollInterval);
+        backupStatus.value = 'failed';
+        backupError.value = err.message;
+        showToast(`Backup status check failed: ${err.message}`, 'error');
+      }
+    }, 400);
+
+  } catch (err) {
+    if (pollInterval) clearInterval(pollInterval);
+    backupStatus.value = 'failed';
+    backupError.value = err.message;
+    showToast(`Failed to start backup: ${err.message}`, 'error');
+  }
+}
+
 // Initial load
 loadDatasets()
 </script>
@@ -456,6 +512,7 @@ loadDatasets()
             @upload="handleUpload"
             @export="handleExport"
             @print="handlePrint"
+            @backup="handleBackup"
           />
 
           <DataManipulation
@@ -600,6 +657,51 @@ loadDatasets()
             :class="{ 'opacity-50 cursor-not-allowed': printOption === 'custom' && printSelection.length === 0 }"
           >
             Confirm & Print
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Backup Progress Modal (no-print) -->
+    <div v-if="showBackupModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-950/70 backdrop-blur-sm no-print animate-fade-in">
+      <div class="glass-panel w-full max-w-sm p-6 flex flex-col items-center text-center shadow-2xl border border-surface-700/50">
+        <!-- Icon -->
+        <div class="w-12 h-12 rounded-full bg-accent-500/10 flex items-center justify-center mb-4">
+          <svg v-if="backupStatus === 'running'" class="w-6 h-6 text-accent-400 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.27 15" />
+          </svg>
+          <svg v-else-if="backupStatus === 'done'" class="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          <svg v-else class="w-6 h-6 text-danger-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+
+        <!-- Title / Status -->
+        <h3 class="text-sm font-semibold text-white mb-1">
+          {{ backupStatus === 'running' ? 'Creating Backup ZIP' : backupStatus === 'done' ? 'Backup Complete' : 'Backup Failed' }}
+        </h3>
+        <p class="text-xs text-surface-400 max-w-xs mb-4">
+          {{ backupStatus === 'running' ? 'Please wait while we copy and compress your dataset database...' : backupStatus === 'done' ? 'Your backup ZIP file is downloading now.' : backupError }}
+        </p>
+
+        <!-- Progress Bar (Only when running) -->
+        <div v-if="backupStatus === 'running'" class="w-full">
+          <div class="w-full bg-surface-800 rounded-full h-2 overflow-hidden shadow-inner mb-2">
+            <div class="bg-accent-500 h-full rounded-full transition-all duration-300 ease-out" :style="{ width: `${backupProgress}%` }"></div>
+          </div>
+          <span class="text-xs text-accent-400 font-mono font-semibold">{{ backupProgress }}%</span>
+        </div>
+
+        <!-- Action Button (only if failed or finished) -->
+        <div v-if="backupStatus !== 'running'" class="w-full mt-4">
+          <button 
+            @click="showBackupModal = false" 
+            class="btn-primary py-2 text-xs w-full"
+            :class="backupStatus === 'done' ? 'bg-green-600 hover:bg-green-500 border-none' : 'bg-surface-800 hover:bg-surface-700 text-surface-200 border-surface-700'"
+          >
+            Close
           </button>
         </div>
       </div>
