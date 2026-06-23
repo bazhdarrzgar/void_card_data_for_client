@@ -19,18 +19,33 @@ const cellValues = ref({})
 // Sync cell values when selectedRow changes
 watch(
   () => props.selectedRow,
-  (row) => {
-    if (row) {
+  (row, oldRow) => {
+    if (row && (!oldRow || row._id !== oldRow._id)) {
       const vals = {}
       for (const col of props.columns) {
         vals[col] = row[col] ?? ''
       }
       cellValues.value = vals
-    } else {
+    } else if (!row) {
       cellValues.value = {}
     }
   },
-  { immediate: true, deep: true }
+  { immediate: true }
+)
+
+// Add missing columns if columns array changes
+watch(
+  () => props.columns,
+  (cols) => {
+    if (props.selectedRow) {
+      for (const col of cols) {
+        if (!(col in cellValues.value)) {
+          cellValues.value[col] = props.selectedRow[col] ?? ''
+        }
+      }
+    }
+  },
+  { deep: true }
 )
 
 const hasChanges = computed(() => {
@@ -43,8 +58,12 @@ const hasChanges = computed(() => {
   return false
 })
 
+let updateTimeout = null
 function handleUpdate() {
-  emit('update', { ...cellValues.value })
+  clearTimeout(updateTimeout)
+  updateTimeout = setTimeout(() => {
+    emit('update', { ...cellValues.value })
+  }, 400) // 400ms debounce
 }
 
 function handleDelete() {
@@ -120,6 +139,8 @@ function onCellKeypress(e, col) {
     // Update input display and cursor manually via nextTick or inline
     el.value = newVal;
     el.selectionStart = el.selectionEnd = start + mappedChar.length;
+    
+    handleUpdate();
   }
 }
 
@@ -130,6 +151,7 @@ function handleImageUpload(event, col) {
   const reader = new FileReader()
   reader.onload = (e) => {
     cellValues.value[col] = e.target.result
+    handleUpdate()
   }
   reader.readAsDataURL(file)
 }
@@ -204,6 +226,7 @@ function getSelectOptions(colType) {
           <div v-if="columnTypes[col]?.startsWith('select:')" class="w-full">
             <select
               v-model="cellValues[col]"
+              @change="handleUpdate"
               :id="`cell-${col}`"
               class="input-field bg-surface-800 border border-surface-700/60 rounded px-2.5 py-2 text-xs w-full text-surface-100 focus:outline-none focus:border-accent-500 cursor-pointer font-sans"
             >
@@ -223,7 +246,7 @@ function getSelectOptions(colType) {
             <div v-if="cellValues[col]" class="relative w-full h-24 rounded-lg overflow-hidden border border-surface-700/60 group bg-surface-950/40">
               <img :src="cellValues[col]" class="w-full h-full object-contain" />
               <button 
-                @click="cellValues[col] = ''" 
+                @click="cellValues[col] = ''; handleUpdate()" 
                 class="absolute inset-0 bg-surface-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center text-danger-400 font-semibold transition-opacity duration-200 text-xs gap-1"
               >
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -254,6 +277,7 @@ function getSelectOptions(colType) {
           <div v-else-if="columnTypes[col] === 'directory'" class="relative flex items-center">
             <input
               v-model="cellValues[col]"
+              @input="handleUpdate"
               :id="`cell-${col}`"
               type="text"
               class="input-field font-mono text-xs pr-10"
@@ -270,6 +294,7 @@ function getSelectOptions(colType) {
           <input
             v-else
             v-model="cellValues[col]"
+            @input="handleUpdate"
             :id="`cell-${col}`"
             type="text"
             @keypress="(e) => onCellKeypress(e, col)"
@@ -281,18 +306,6 @@ function getSelectOptions(colType) {
 
       <!-- Action Buttons -->
       <div class="flex items-center gap-3 mt-4 pt-4 border-t border-surface-700/30">
-        <button
-          id="btn-update-row"
-          class="btn-primary text-xs py-2"
-          :disabled="!hasChanges"
-          :class="{ 'opacity-40 cursor-not-allowed': !hasChanges }"
-          @click="handleUpdate"
-        >
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-          Update Row
-        </button>
         <button
           id="btn-delete-row"
           class="btn-danger text-xs py-2"

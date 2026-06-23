@@ -298,17 +298,19 @@ function handleRowSelect(row) {
 async function handleUpdate(updates) {
   if (!selectedRow.value || !currentDatasetId.value) return
   try {
-    isLoading.value = true
     await api.updateRow(currentDatasetId.value, selectedRow.value._id, updates)
-    await loadCurrentDataset()
-    // Re-select the updated row
-    const updated = rows.value.find(r => r._id === selectedRow.value._id)
-    selectedRow.value = updated ? { ...updated } : null
-    showToast('Row updated successfully', 'success')
+    
+    // Update local state without full reload
+    const rowIndex = rows.value.findIndex(r => r._id === selectedRow.value._id)
+    if (rowIndex !== -1) {
+      rows.value[rowIndex] = { ...rows.value[rowIndex], ...updates }
+    }
+    
+    if (selectedRow.value && selectedRow.value._id === selectedRow.value._id) {
+      selectedRow.value = { ...selectedRow.value, ...updates }
+    }
   } catch (err) {
     showToast(`Update failed: ${err.message}`, 'error')
-  } finally {
-    isLoading.value = false
   }
 }
 

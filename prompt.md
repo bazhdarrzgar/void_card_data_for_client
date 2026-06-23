@@ -69,3 +69,5 @@ i wanna show me copy or move and send to what excel or what table in the databas
 
 add one things for me for export the excell i wanna take me two choice when i click to export the excell i wanna tell
 me export entire excell or just this columns i selected
+
+for edit raw if i edit the raw i wanna instaid click to update to update my change i wanna make it auto save
