@@ -1,13 +1,15 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import ImageEditorModal from './ImageEditorModal.vue'
+import Fuse from 'fuse.js'
 
 const props = defineProps({
   columns: { type: Array, default: () => [] },
   selectedRow: { type: Object, default: null },
   shortcuts: { type: Object, default: () => ({}) }, // { colName: "key" }
   currentLanguage: { type: String, default: 'en' },
-  columnTypes: { type: Object, default: () => ({}) }
+  columnTypes: { type: Object, default: () => ({}) },
+  rows: { type: Array, default: () => [] }
 })
 
 import { mapString } from '../utils/keyboardMap.js'
@@ -180,10 +182,46 @@ function handleSaveEditedImage(dataUrl) {
   }
   showImageEditor.value = false
 }
+
+// ─── Column Fuzzy Search ───
+const fuzzySearchEnabled = ref({})
+const fuzzySearchCache = ref({})
+const uniqueColValues = ref({})
+
+function toggleFuzzySearch(col) {
+  if (fuzzySearchEnabled.value[col]) {
+    fuzzySearchEnabled.value[col] = false
+  } else {
+    fuzzySearchEnabled.value[col] = true
+    const uniqueVals = [...new Set(props.rows.map(r => r[col]).filter(v => v && typeof v === 'string'))]
+    uniqueColValues.value[col] = uniqueVals
+    fuzzySearchCache.value[col] = new Fuse(uniqueVals, { threshold: 0.3 })
+  }
+}
+
+function getFuzzyResults(col) {
+  if (!fuzzySearchEnabled.value[col] || !fuzzySearchCache.value[col]) return []
+  const query = cellValues.value[col] || ''
+  if (!query) return (uniqueColValues.value[col] || []).slice(0, 10)
+  return fuzzySearchCache.value[col].search(query).map(r => r.item).slice(0, 10)
+}
+
+function selectFuzzyResult(col, val) {
+  cellValues.value[col] = val
+  handleUpdate()
+  // Focus the input to allow them to continue or move to the next
+  const el = document.getElementById(`cell-${col}`);
+  if (el) {
+    el.focus();
+  }
+}
+
+const focusedColumn = ref(null)
+
 </script>
 
 <template>
-  <div class="glass-panel-sm overflow-visible transition-all duration-300" :class="selectedRow ? 'opacity-100' : 'max-h-14 opacity-70'">
+  <div class="glass-panel-sm overflow-visible transition-all duration-300 relative z-50" :class="selectedRow ? 'opacity-100' : 'max-h-14 opacity-70'">
     <!-- Header -->
     <div class="px-5 py-3 flex items-center justify-between border-b border-surface-700/30">
       <div class="flex items-center gap-2">
@@ -193,9 +231,21 @@ function handleSaveEditedImage(dataUrl) {
         <h2 class="text-sm font-semibold text-surface-200">
           {{ selectedRow ? 'Edit Row' : 'Load the raw as cell' }}
         </h2>
+        
+        <!-- Shortcut assigner for raw box -->
+        <div class="ml-2 flex items-center">
+            <div v-if="assigningShortcutFor === '__raw__'" class="text-[10px] text-accent-400 font-mono bg-accent-500/10 px-1 py-0.5 rounded outline-none" tabindex="0" @keydown="e => handleShortcutKeydown(e, '__raw__')" @blur="assigningShortcutFor = null" ref="assignInput" :autofocus="true">
+              Press Key...
+            </div>
+            <div v-else @click="startAssignShortcut('__raw__')" class="cursor-pointer text-[10px] text-surface-500 font-mono hover:text-accent-400 px-1 rounded transition-colors" :class="{'bg-surface-800 border border-surface-700': shortcuts['__raw__']}">
+              {{ shortcuts['__raw__'] ? shortcuts['__raw__'] : '+ Raw Shortcut' }}
+            </div>
+        </div>
+
         <span v-if="selectedRow" class="text-xs text-accent-400 font-mono bg-accent-500/10 px-2 py-0.5 rounded-md">
           ID: {{ selectedRow._id }}
         </span>
+
       </div>
 
       <div v-if="selectedRow" class="flex items-center gap-2">
@@ -228,6 +278,19 @@ function handleSaveEditedImage(dataUrl) {
               <button v-if="editingColumn !== col" @click="startRename(col)" class="text-surface-600 hover:text-accent-400 opacity-0 group-hover:opacity-100 transition-opacity">
                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              </button>
+              
+              <!-- Per-column fuzzy search toggle (always visible) -->
+              <button 
+                v-if="editingColumn !== col" 
+                @click="toggleFuzzySearch(col)" 
+                class="ml-1 flex items-center justify-center p-0.5 rounded transition-all"
+                :class="fuzzySearchEnabled[col] ? 'text-white bg-accent-500 hover:bg-accent-600 shadow-[0_0_8px_rgba(14,165,233,0.4)]' : 'text-surface-500 hover:text-accent-400 hover:bg-surface-700'"
+                title="Toggle Auto-Search for this column"
+              >
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </button>
             </label>
@@ -322,16 +385,31 @@ function handleSaveEditedImage(dataUrl) {
           </div>
 
           <!-- Default Text Column Input -->
-          <input
-            v-else
-            v-model="cellValues[col]"
-            @input="handleUpdate"
-            :id="`cell-${col}`"
-            type="text"
-            @keypress="(e) => onCellKeypress(e, col)"
-            class="input-field font-mono text-xs"
-            :placeholder="`Enter ${col}…`"
-          />
+          <div v-else class="relative">
+            <input
+              v-model="cellValues[col]"
+              @input="handleUpdate"
+              :id="`cell-${col}`"
+              type="text"
+              @focus="focusedColumn = col"
+              @blur="() => { setTimeout(() => { if (focusedColumn === col) focusedColumn = null }, 200) }"
+              @keypress="(e) => onCellKeypress(e, col)"
+              class="input-field font-mono text-xs w-full"
+              :placeholder="`Enter ${col}…`"
+            />
+            <!-- Fuzzy Search Dropdown -->
+            <div v-if="fuzzySearchEnabled[col] && focusedColumn === col" class="absolute z-50 w-full mt-1 bg-surface-800 border border-surface-700 rounded-lg shadow-xl max-h-40 overflow-y-auto py-1">
+              <div v-if="getFuzzyResults(col).length === 0" class="px-3 py-2 text-[10px] text-surface-500 italic">No matches found</div>
+              <div 
+                v-for="(res, ridx) in getFuzzyResults(col)" 
+                :key="ridx"
+                @click="selectFuzzyResult(col, res)"
+                class="px-3 py-1.5 text-xs text-surface-200 hover:bg-accent-500/20 hover:text-accent-300 cursor-pointer truncate"
+              >
+                {{ res }}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

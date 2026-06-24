@@ -6,10 +6,11 @@ const props = defineProps({
   totalCount: { type: Number, default: 0 },
   filteredCount: { type: Number, default: 0 },
   hasData: Boolean,
-  currentLanguage: { type: String, default: 'en' }
+  currentLanguage: { type: String, default: 'en' },
+  shortcut: { type: String, default: '' }
 })
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'assign-shortcut'])
 
 function onInput(e) {
   emit('update:modelValue', e.target.value)
@@ -34,6 +35,30 @@ function onKeypress(e) {
 
 function clear() {
   emit('update:modelValue', '')
+}
+
+import { ref } from 'vue'
+const assigningShortcut = ref(false)
+
+function handleShortcutKeydown(e) {
+  e.preventDefault()
+  e.stopPropagation()
+  
+  // ignore pure modifier keys
+  if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return
+
+  let combo = []
+  if (e.ctrlKey) combo.push('Ctrl')
+  if (e.altKey) combo.push('Alt')
+  if (e.shiftKey) combo.push('Shift')
+  
+  let keyStr = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key
+  combo.push(keyStr)
+
+  const finalCombo = combo.join('+')
+  
+  emit('assign-shortcut', { colName: '__search__', shortcut: finalCombo })
+  assigningShortcut.value = false
 }
 </script>
 
@@ -64,6 +89,16 @@ function clear() {
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
+    </div>
+    
+    <!-- Shortcut assigner for search box -->
+    <div class="flex items-center">
+        <div v-if="assigningShortcut" class="text-[10px] text-accent-400 font-mono bg-accent-500/10 px-1 py-0.5 rounded outline-none" tabindex="0" @keydown="handleShortcutKeydown" @blur="assigningShortcut = false" :autofocus="true">
+          Press Key...
+        </div>
+        <div v-else @click="assigningShortcut = true" class="cursor-pointer text-[10px] text-surface-500 font-mono hover:text-accent-400 px-1 rounded transition-colors" :class="{'bg-surface-800 border border-surface-700': shortcut}">
+          {{ shortcut ? shortcut : '+ Search Shortcut' }}
+        </div>
     </div>
 
     <!-- Filter Stats -->

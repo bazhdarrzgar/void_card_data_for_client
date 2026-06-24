@@ -21,6 +21,15 @@ cleanup() {
 # Trap SIGINT (Ctrl+C) and SIGTERM
 trap cleanup SIGINT SIGTERM
 
+# Function to find next available port
+find_free_port() {
+    local port=$1
+    while (echo > /dev/tcp/127.0.0.1/$port) >/dev/null 2>&1; do
+        port=$((port+1))
+    done
+    echo $port
+}
+
 # Check if npm dependencies are installed (install if node_modules missing)
 if [ ! -d "server/node_modules" ]; then
     echo -e "${BLUE}📦 Installing server dependencies...${RESET}"
@@ -32,23 +41,30 @@ if [ ! -d "client/node_modules" ]; then
     (cd client && npm install)
 fi
 
+# Find available ports
+BACKEND_PORT=$(find_free_port 3001)
+FRONTEND_PORT=$(find_free_port 5173)
+
+export BACKEND_PORT
+export FRONTEND_PORT
+
 # Start Backend Server
-echo -e "${GREEN}Starting backend API server (Port 3001)...${RESET}"
+echo -e "${GREEN}Starting backend API server (Port ${BACKEND_PORT})...${RESET}"
 cd server
 npm run dev &
 BACKEND_PID=$!
 cd ..
 
 # Start Frontend Dev Server
-echo -e "${GREEN}Starting frontend dev server (Vite)...${RESET}"
+echo -e "${GREEN}Starting frontend dev server (Port ${FRONTEND_PORT})...${RESET}"
 cd client
 npm run dev &
 FRONTEND_PID=$!
 cd ..
 
 echo -e "${CYAN}──────────────────────────────────────────────────"
-echo -e "  Backend running on:  http://localhost:3001"
-echo -e "  Frontend running on: Check terminal output above"
+echo -e "  Backend running on:  http://localhost:${BACKEND_PORT}"
+echo -e "  Frontend running on: http://localhost:${FRONTEND_PORT}"
 echo -e "──────────────────────────────────────────────────${RESET}"
 echo -e "Press ${RED}Ctrl+C${RESET} to stop both servers."
 

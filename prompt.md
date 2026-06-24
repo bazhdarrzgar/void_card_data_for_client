@@ -71,3 +71,13 @@ add one things for me for export the excell i wanna take me two choice when i cl
 me export entire excell or just this columns i selected
 
 for edit raw if i edit the raw i wanna instaid click to update to update my change i wanna make it auto save
+
+i wanna if port 3000 is busy switch to another port or if port 5173 is busy switch to another port and run this project in that new port update sh file for that
+
+i wanna in edit window for raw box have access to enable fuzzy search for every raw data i can toggle enable the fuzzy search for find data in there columns and put this result raw data in this raw 
+for example when i pick the raw and i click to one of the box raw data to enable fuzzy search just for this columns that i selected i wanna enable fuzzy search for finding the data on this raw and put it in because i don't wanna type the same thing again by find it make it easy for me to type the raw data in the edit window and i can toggle diable 
+fuzzy search for this raw data
+
+i wanna for enable fuzzy search like switch on and off i don't wanna disable the button if i enable it when i go to another raw and also diable it if i disable it when i go to another raw and also if i close the website and open it again i want the fuzzy search to be disabled by default
+
+i wanna by using ctrl + 1 to pick the first raw result of the table and edit the raw

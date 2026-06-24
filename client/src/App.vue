@@ -88,8 +88,6 @@ const shortcuts = ref({}) // { "colName": "Ctrl+A" }
 
 // ─── Shortcuts ───────────────────────────────────────────
 function handleKeydown(e) {
-  if (!selectedRow.value) return;
-
   // Format the typed key into our combo format
   let combo = []
   if (e.ctrlKey) combo.push('Ctrl')
@@ -104,8 +102,42 @@ function handleKeydown(e) {
   combo.push(keyStr)
   const finalCombo = combo.join('+')
 
+  if (finalCombo === 'Ctrl+1') {
+    e.preventDefault();
+    if (filteredRows.value.length > 0) {
+      selectedRow.value = { ...filteredRows.value[0] };
+      setTimeout(() => {
+        if (columns.value.length > 0) {
+          const el = document.getElementById('cell-' + columns.value[0]);
+          if (el) {
+            el.focus();
+            // Optional: select all text in the cell for quick overwriting
+            if (el.select) el.select();
+          }
+        }
+      }, 100);
+    }
+    return;
+  }
+
   for (const [colName, shortcutCombo] of Object.entries(shortcuts.value)) {
     if (shortcutCombo === finalCombo) {
+      if (colName === '__search__') {
+        e.preventDefault();
+        const el = document.getElementById('input-fuzzy-search');
+        if (el) el.focus();
+        return;
+      } else if (colName === '__raw__') {
+        e.preventDefault();
+        if (columns.value.length > 0) {
+          const el = document.getElementById('cell-' + columns.value[0]);
+          if (el) el.focus();
+        }
+        return;
+      }
+      
+      if (!selectedRow.value) continue;
+      
       e.preventDefault();
       const el = document.getElementById('cell-' + colName);
       if (el) el.focus();
@@ -124,7 +156,8 @@ onUnmounted(() => {
 
 function handleAssignShortcut({ colName, shortcut }) {
   shortcuts.value[colName] = shortcut;
-  showToast(`Shortcut ${shortcut} assigned to ${colName}`, 'success');
+  const nameDisplay = colName === '__search__' ? 'Search' : colName === '__raw__' ? 'Raw Box' : colName;
+  showToast(`Shortcut ${shortcut} assigned to ${nameDisplay}`, 'success');
 }
 
 // ─── Toast System ────────────────────────────────────────
@@ -689,6 +722,7 @@ loadDatasets()
             :shortcuts="shortcuts"
             :current-language="currentLanguage"
             :column-types="columnTypes"
+            :rows="rows"
             @update="handleUpdate"
             @delete="handleDelete"
             @deselect="handleDeselect"
@@ -703,6 +737,8 @@ loadDatasets()
             :filtered-count="filteredRows.length"
             :has-data="rows.length > 0"
             :current-language="currentLanguage"
+            :shortcut="shortcuts['__search__']"
+            @assign-shortcut="handleAssignShortcut"
           />
         </div>
 
