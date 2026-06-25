@@ -19,16 +19,21 @@ if %errorlevel% neq 0 (
     echo ✔ Node.js is installed (!NODE_VER!)
 )
 
-:: 2. Check for npm
-echo 🔍 Checking for npm...
-cmd /c npm -v >nul 2>&1
+:: 2. Check for nub
+echo 🔍 Checking for nub...
+cmd /c nub --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ❌ Error: npm is not installed!
-    echo Please install npm (usually bundled with Node.js) before running this project.
+    echo ❌ Error: nub is not installed!
+    echo Please install nub before running this project.
+    echo You can install it via: npm install -g @nubjs/nub
     goto ERROR
 ) else (
-    for /f "tokens=*" %%i in ('cmd /c npm -v') do set NPM_VER=%%i
-    echo ✔ npm is installed (!NPM_VER!)
+    for /f "tokens=*" %%i in ('cmd /c nub --version') do (
+        set NUB_VER=%%i
+        goto NUB_CHECK_DONE
+    )
+    :NUB_CHECK_DONE
+    echo ✔ nub is installed (!NUB_VER!)
 )
 
 :: 3. Install backend server dependencies
@@ -39,7 +44,8 @@ if not exist "server\" (
     goto ERROR
 )
 cd server
-call npm install
+if exist package-lock.json del package-lock.json
+call nub install
 if %errorlevel% neq 0 (
     echo ❌ Failed to install backend dependencies!
     cd ..
@@ -56,7 +62,8 @@ if not exist "client\" (
     goto ERROR
 )
 cd client
-call npm install
+if exist package-lock.json del package-lock.json
+call nub install
 if %errorlevel% neq 0 (
     echo ❌ Failed to install frontend dependencies!
     cd ..

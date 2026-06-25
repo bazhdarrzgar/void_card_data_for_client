@@ -81,3 +81,46 @@ fuzzy search for this raw data
 i wanna for enable fuzzy search like switch on and off i don't wanna disable the button if i enable it when i go to another raw and also diable it if i disable it when i go to another raw and also if i close the website and open it again i want the fuzzy search to be disabled by default
 
 i wanna by using ctrl + 1 to pick the first raw result of the table and edit the raw
+
+
+please instaid using npm use nub 
+update the .sh file and .bat file for using this feature
+this is some information about this command:
+
+A Bun-like DX on top of stock node, written in Rust.
+
+nub index.ts             # TypeScript-first Node.js runtime
+nub run dev              # 24× faster pnpm run
+nubx prisma generate     # 19× faster npx
+nub install              # 2.5× faster pnpm install
+nub watch src/server.ts  # native watch mode
+nub pm shim              # built-in Corepack-style shims
+nub node install 26      # Node version manager
+nub upgrade              # self update
+One tool to run your files and scripts, install dependencies, and manage Node itself. No new runtime, no vendor-specific API surface, no lock-in.
+
+Nub	Instead of
+nub <file>	node, tsx, ts-node, dotenv-cli
+nub run <script>	npm run, pnpm run
+nubx	npx, pnpm dlx / exec
+nub install	npm, pnpm
+nub watch	nodemon, node --watch, tsx watch
+nub node	nvm, fnm, n, volta
+nub pm	corepack
+
+Install
+# macOS / Linux
+curl -fsSL https://nubjs.com/install.sh | bash
+
+# Windows (PowerShell)
+irm https://nubjs.com/install.ps1 | iex
+
+# Homebrew (macOS / Linux)
+brew install nubjs/tap/nub
+
+# Or via npm (pnpm / yarn global add work too)
+npm install -g --ignore-scripts=false @nubjs/nub
+
+
+also create .sh file and .bat file to run the program in build mod not in dev mod
+

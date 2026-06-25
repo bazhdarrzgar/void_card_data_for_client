@@ -30,15 +30,15 @@ find_free_port() {
     echo $port
 }
 
-# Check if npm dependencies are installed (install if node_modules missing)
+# Check if dependencies are installed (install if node_modules missing)
 if [ ! -d "server/node_modules" ]; then
     echo -e "${BLUE}📦 Installing server dependencies...${RESET}"
-    (cd server && npm install)
+    (cd server && rm -f package-lock.json && nub install)
 fi
 
 if [ ! -d "client/node_modules" ]; then
     echo -e "${BLUE}📦 Installing client dependencies...${RESET}"
-    (cd client && npm install)
+    (cd client && rm -f package-lock.json && nub install)
 fi
 
 # Find available ports
@@ -51,14 +51,14 @@ export FRONTEND_PORT
 # Start Backend Server
 echo -e "${GREEN}Starting backend API server (Port ${BACKEND_PORT})...${RESET}"
 cd server
-npm run dev &
+nub run dev &
 BACKEND_PID=$!
 cd ..
 
 # Start Frontend Dev Server
 echo -e "${GREEN}Starting frontend dev server (Port ${FRONTEND_PORT})...${RESET}"
 cd client
-npm run dev &
+nub run dev &
 FRONTEND_PID=$!
 cd ..
 

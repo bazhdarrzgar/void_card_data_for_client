@@ -77,9 +77,9 @@ install.bat
 ```
 
 This will automatically:
-* Verify if Node.js (v18+) and npm are installed.
+* Verify if Node.js (v18+) and nub are installed.
 * Check if C++ compiler build tools are present (needed in case native SQLite bindings need compilation).
-* Run `npm install` inside both the `server/` and `client/` directories.
+* Run `nub install` inside both the `server/` and `client/` directories.
 
 ---
 

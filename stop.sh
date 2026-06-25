@@ -27,11 +27,12 @@ for port in "${PORTS[@]}"; do
     fi
 done
 
-# Kill local background Node/Vite processes spawned in this directory
+# Kill local background Node/Vite/Nub processes spawned in this directory
 local_nodes=$(pgrep -f "node.*voide_form" 2>/dev/null)
-if [ -n "$local_nodes" ]; then
-    echo -e "${RED}💥 Killing background Node processes: $local_nodes${RESET}"
-    kill -9 $local_nodes 2>/dev/null
+local_nubs=$(pgrep -f "nub.*voide_form" 2>/dev/null)
+if [ -n "$local_nodes" ] || [ -n "$local_nubs" ]; then
+    echo -e "${RED}💥 Killing background Node/Nub processes: $local_nodes $local_nubs${RESET}"
+    kill -9 $local_nodes $local_nubs 2>/dev/null
 fi
 
 echo -e "${GREEN}✨ Project stopped successfully.${RESET}"

@@ -9,7 +9,8 @@ echo ==================================================
 if not exist "server\node_modules\" (
     echo 📦 Installing server dependencies...
     cd server
-    call npm install
+    if exist package-lock.json del package-lock.json
+    call nub install
     cd ..
 )
 
@@ -17,15 +18,16 @@ if not exist "server\node_modules\" (
 if not exist "client\node_modules\" (
     echo 📦 Installing client dependencies...
     cd client
-    call npm install
+    if exist package-lock.json del package-lock.json
+    call nub install
     cd ..
 )
 
 echo Starting backend API server (Port 3001)...
-start "Voide Form Backend" cmd /c "cd server && npm run dev"
+start "Voide Form Backend" cmd /c "cd server && nub run dev"
 
 echo Starting frontend dev server (Vite)...
-start "Voide Form Frontend" cmd /c "cd client && npm run dev"
+start "Voide Form Frontend" cmd /c "cd client && nub run dev"
 
 echo ==================================================
 echo   Backend is running in a new window.

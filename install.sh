@@ -24,15 +24,16 @@ else
     echo -e "${GREEN}✔ Node.js is installed ($NODE_VERSION)${RESET}"
 fi
 
-# 2. Check if npm is installed
-echo -e "${BLUE}🔍 Checking for npm...${RESET}"
-if ! command -v npm &> /dev/null; then
-    echo -e "${RED}❌ Error: npm (Node Package Manager) is not installed!${RESET}"
-    echo -e "${YELLOW}Please install npm (usually bundled with Node.js) before running this project.${RESET}"
+# 2. Check if nub is installed
+echo -e "${BLUE}🔍 Checking for nub...${RESET}"
+if ! command -v nub &> /dev/null; then
+    echo -e "${RED}❌ Error: nub is not installed!${RESET}"
+    echo -e "${YELLOW}Please install nub before running this project.${RESET}"
+    echo -e "You can install it via: ${CYAN}npm install -g @nubjs/nub${RESET}"
     exit 1
 else
-    NPM_VERSION=$(npm -v)
-    echo -e "${GREEN}✔ npm is installed ($NPM_VERSION)${RESET}"
+    NUB_VERSION=$(nub --version 2>/dev/null | head -n 1)
+    echo -e "${GREEN}✔ nub is installed ($NUB_VERSION)${RESET}"
 fi
 
 # 3. Check for compiler tools (better-sqlite3 may require compilation if prebuilds fail)
@@ -49,7 +50,8 @@ fi
 echo -e "\n${BLUE}📦 Installing backend (server) dependencies...${RESET}"
 if [ -d "server" ]; then
     cd server
-    if npm install; then
+    rm -f package-lock.json
+    if nub install; then
         echo -e "${GREEN}✔ Backend dependencies installed successfully.${RESET}"
     else
         echo -e "${RED}❌ Failed to install backend dependencies!${RESET}"
@@ -65,7 +67,8 @@ fi
 echo -e "\n${BLUE}📦 Installing frontend (client) dependencies...${RESET}"
 if [ -d "client" ]; then
     cd client
-    if npm install; then
+    rm -f package-lock.json
+    if nub install; then
         echo -e "${GREEN}✔ Frontend dependencies installed successfully.${RESET}"
     else
         echo -e "${RED}❌ Failed to install frontend dependencies!${RESET}"
