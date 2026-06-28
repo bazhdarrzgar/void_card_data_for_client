@@ -1,22 +1,22 @@
 @echo off
-title Voide Form Dev Server
+title Voide Form Production Build & Run
 setlocal enabledelayedexpansion
 
 echo ==================================================
-echo 🚀 Starting Voide Form in Development Mode...
+echo 🚀 Preparing Voide Form Dataset Studio for Production (Build Mode)...
 echo ==================================================
 
 :: Detect package manager
 cmd /c nub --version >nul 2>&1
 if %errorlevel% equ 0 (
     set PKG_MANAGER=nub
-    echo 🟢 Using nub for running development servers.
+    echo 🟢 Using nub for production build and execution.
 ) else (
     set PKG_MANAGER=npm
-    echo 🟡 Using npm (fallback) for running development servers.
+    echo 🟡 Using npm (fallback) for production build and execution.
 )
 
-:: Check if server node_modules exist
+:: Check for node_modules in backend
 if not exist "server\node_modules\" (
     echo 📦 Installing server dependencies using !PKG_MANAGER!...
     cd server
@@ -29,7 +29,7 @@ if not exist "server\node_modules\" (
     cd ..
 )
 
-:: Check if client node_modules exist
+:: Check for node_modules in frontend
 if not exist "client\node_modules\" (
     echo 📦 Installing client dependencies using !PKG_MANAGER!...
     cd client
@@ -42,23 +42,21 @@ if not exist "client\node_modules\" (
     cd ..
 )
 
-echo Starting backend API server (Port 3001)...
+:: Build frontend static assets
+echo 🛠️ Building frontend static assets...
+cd client
 if "!PKG_MANAGER!"=="nub" (
-    start "Voide Form Backend" cmd /c "cd server && nub run dev"
+    call nub run build
 ) else (
-    start "Voide Form Backend" cmd /c "cd server && npm run dev"
+    call npm run build
 )
+cd ..
 
-echo Starting frontend dev server (Vite)...
+:: Start backend server which serves both API and Client Build
+echo Starting backend production server (serving both API ^& Frontend on Port 3001)...
+cd server
 if "!PKG_MANAGER!"=="nub" (
-    start "Voide Form Frontend" cmd /c "cd client && nub run dev"
+    call nub index.js
 ) else (
-    start "Voide Form Frontend" cmd /c "cd client && npm run dev"
+    node index.js
 )
-
-echo ==================================================
-echo   Backend is running in a new window.
-echo   Frontend (Vite) is running in a new window.
-echo ==================================================
-echo Close the individual terminal windows to stop the servers.
-pause

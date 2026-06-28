@@ -124,3 +124,11 @@ npm install -g --ignore-scripts=false @nubjs/nub
 
 also create .sh file and .bat file to run the program in build mod not in dev mod
 
+
+
+
+
+tis is repository of nub "https://github.com/nubjs/nub" please read about
+in install_deps.bat do you add installation nub if not exist in te windows
+also add statement if nub is not work then use npm instaid for all the file i mean if nub is work then use nub if not use npm also indicate me in the terminal which one they used please remember don't remove anything you added just add statement in the code
+now one time review the code if they work perrfectly

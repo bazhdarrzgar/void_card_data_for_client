@@ -27,14 +27,18 @@ fi
 # 2. Check if nub is installed
 echo -e "${BLUE}🔍 Checking for nub...${RESET}"
 if ! command -v nub &> /dev/null; then
-    echo -e "${RED}❌ Error: nub is not installed!${RESET}"
-    echo -e "${YELLOW}Please install nub before running this project.${RESET}"
-    echo -e "You can install it via: ${CYAN}npm install -g @nubjs/nub${RESET}"
-    exit 1
-else
-    NUB_VERSION=$(nub --version 2>/dev/null | head -n 1)
-    echo -e "${GREEN}✔ nub is installed ($NUB_VERSION)${RESET}"
+    echo -e "${YELLOW}⚠️ nub is not installed. Attempting to install nub globally via npm...${RESET}"
+    if npm install -g --ignore-scripts=false @nubjs/nub; then
+        echo -e "${GREEN}✔ nub installed successfully.${RESET}"
+    else
+        echo -e "${RED}❌ Failed to install nub globally!${RESET}"
+        echo -e "${YELLOW}Please try installing it manually: npm install -g --ignore-scripts=false @nubjs/nub${RESET}"
+        exit 1
+    fi
 fi
+
+NUB_VERSION=$(nub --version 2>/dev/null | head -n 1)
+echo -e "${GREEN}✔ nub is installed ($NUB_VERSION)${RESET}"
 
 # 3. Check for compiler tools (better-sqlite3 may require compilation if prebuilds fail)
 echo -e "${BLUE}🔍 Checking for build tools (required for native dependencies)...${RESET}"

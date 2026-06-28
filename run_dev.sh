@@ -30,15 +30,32 @@ find_free_port() {
     echo $port
 }
 
+# Detect package manager
+if command -v nub &> /dev/null; then
+    PKG_MANAGER="nub"
+    echo -e "${GREEN}🟢 Using nub for running development servers.${RESET}"
+else
+    PKG_MANAGER="npm"
+    echo -e "${YELLOW}🟡 Using npm (fallback) for running development servers.${RESET}"
+fi
+
 # Check if dependencies are installed (install if node_modules missing)
 if [ ! -d "server/node_modules" ]; then
-    echo -e "${BLUE}📦 Installing server dependencies...${RESET}"
-    (cd server && rm -f package-lock.json && nub install)
+    echo -e "${BLUE}📦 Installing server dependencies using ${PKG_MANAGER}...${RESET}"
+    if [ "$PKG_MANAGER" = "nub" ]; then
+        (cd server && rm -f package-lock.json && nub install)
+    else
+        (cd server && rm -f package-lock.json && npm install)
+    fi
 fi
 
 if [ ! -d "client/node_modules" ]; then
-    echo -e "${BLUE}📦 Installing client dependencies...${RESET}"
-    (cd client && rm -f package-lock.json && nub install)
+    echo -e "${BLUE}📦 Installing client dependencies using ${PKG_MANAGER}...${RESET}"
+    if [ "$PKG_MANAGER" = "nub" ]; then
+        (cd client && rm -f package-lock.json && nub install)
+    else
+        (cd client && rm -f package-lock.json && npm install)
+    fi
 fi
 
 # Find available ports
@@ -51,14 +68,22 @@ export FRONTEND_PORT
 # Start Backend Server
 echo -e "${GREEN}Starting backend API server (Port ${BACKEND_PORT})...${RESET}"
 cd server
-nub run dev &
+if [ "$PKG_MANAGER" = "nub" ]; then
+    nub run dev &
+else
+    npm run dev &
+fi
 BACKEND_PID=$!
 cd ..
 
 # Start Frontend Dev Server
 echo -e "${GREEN}Starting frontend dev server (Port ${FRONTEND_PORT})...${RESET}"
 cd client
-nub run dev &
+if [ "$PKG_MANAGER" = "nub" ]; then
+    nub run dev &
+else
+    npm run dev &
+fi
 FRONTEND_PID=$!
 cd ..
 
