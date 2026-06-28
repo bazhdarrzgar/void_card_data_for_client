@@ -27,16 +27,14 @@ if %errorlevel% neq 0 (
     echo 📦 Attempting to install nub globally via npm...
     call npm install -g --ignore-scripts=false @nubjs/nub
     if !errorlevel! neq 0 (
-        echo ❌ Error: Failed to install nub globally!
-        echo Please try installing it manually: npm install -g --ignore-scripts=false @nubjs/nub
-        goto ERROR
-    )
-    :: Re-verify nub installation
-    cmd /c nub --version >nul 2>&1
-    if !errorlevel! neq 0 (
-        echo ❌ Error: nub was installed but the 'nub' command is still not recognized.
-        echo You may need to restart your terminal or add the npm global bin folder to your PATH.
-        goto ERROR
+        echo ⚠️ Failed to install nub globally. The installation will fall back to standard npm.
+    ) else (
+        :: Re-verify nub installation
+        cmd /c nub --version >nul 2>&1
+        if !errorlevel! neq 0 (
+            echo ⚠️ nub was installed but the 'nub' command is still not recognized.
+            echo The installation will fall back to standard npm.
+        )
     )
 )
 

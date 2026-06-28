@@ -32,13 +32,19 @@ if ! command -v nub &> /dev/null; then
         echo -e "${GREEN}✔ nub installed successfully.${RESET}"
     else
         echo -e "${RED}❌ Failed to install nub globally!${RESET}"
-        echo -e "${YELLOW}Please try installing it manually: npm install -g --ignore-scripts=false @nubjs/nub${RESET}"
-        exit 1
+        echo -e "${YELLOW}The installation script will proceed and fall back to standard npm.${RESET}"
     fi
 fi
 
-NUB_VERSION=$(nub --version 2>/dev/null | head -n 1)
-echo -e "${GREEN}✔ nub is installed ($NUB_VERSION)${RESET}"
+# Detect package manager
+if command -v nub &> /dev/null; then
+    PKG_MANAGER="nub"
+    NUB_VERSION=$(nub --version 2>/dev/null | head -n 1)
+    echo -e "${GREEN}🟢 Using nub ($NUB_VERSION) for package installation.${RESET}"
+else
+    PKG_MANAGER="npm"
+    echo -e "${YELLOW}🟡 Using npm (fallback) for package installation.${RESET}"
+fi
 
 # 3. Check for compiler tools (better-sqlite3 may require compilation if prebuilds fail)
 echo -e "${BLUE}🔍 Checking for build tools (required for native dependencies)...${RESET}"
@@ -51,11 +57,16 @@ else
 fi
 
 # 4. Install backend server dependencies
-echo -e "\n${BLUE}📦 Installing backend (server) dependencies...${RESET}"
+echo -e "\n${BLUE}📦 Installing backend (server) dependencies using ${PKG_MANAGER}...${RESET}"
 if [ -d "server" ]; then
     cd server
     rm -f package-lock.json
-    if nub install; then
+    if [ "$PKG_MANAGER" = "nub" ]; then
+        INSTALL_CMD="nub install"
+    else
+        INSTALL_CMD="npm install"
+    fi
+    if $INSTALL_CMD; then
         echo -e "${GREEN}✔ Backend dependencies installed successfully.${RESET}"
     else
         echo -e "${RED}❌ Failed to install backend dependencies!${RESET}"
@@ -68,11 +79,16 @@ else
 fi
 
 # 5. Install frontend client dependencies
-echo -e "\n${BLUE}📦 Installing frontend (client) dependencies...${RESET}"
+echo -e "\n${BLUE}📦 Installing frontend (client) dependencies using ${PKG_MANAGER}...${RESET}"
 if [ -d "client" ]; then
     cd client
     rm -f package-lock.json
-    if nub install; then
+    if [ "$PKG_MANAGER" = "nub" ]; then
+        INSTALL_CMD="nub install"
+    else
+        INSTALL_CMD="npm install"
+    fi
+    if $INSTALL_CMD; then
         echo -e "${GREEN}✔ Frontend dependencies installed successfully.${RESET}"
     else
         echo -e "${RED}❌ Failed to install frontend dependencies!${RESET}"
